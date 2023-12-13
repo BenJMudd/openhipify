@@ -1,9 +1,12 @@
 #include "args/Arguments.h"
-#include "reporting/Defs.h"
+#include "utils/Defs.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
 #include <sstream>
+using namespace llvm;
 namespace ct = clang::tooling;
+namespace fs = sys::fs;
 
 bool SortSourceFilePaths(const std::vector<std::string> &srcList,
                          std::vector<std::string> &kernelSrcList,
@@ -33,7 +36,8 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
   }
 
   return true;
-}
+} // namespace
+  // llvm::sys::fs'boolSortSourceFilePaths(conststd::vector<std::string>&srcList,std::vector<std::string>&kernelSrcList,std::vector<std::string>&hostSrcList)
 
 int main(int argc, const char **argv) {
   auto cop = ct::CommonOptionsParser::create(
@@ -55,6 +59,29 @@ int main(int argc, const char **argv) {
   std::vector<std::string> hostFiles;
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
+  std::error_code err;
+  for (const auto &kernelFile : kernelFiles) {
+    SmallString<256> fileAbsPath;
+    err = fs::real_path(kernelFile, fileAbsPath, true);
+    if (err) {
+      llvm::errs() << sOpenHipify << sErr << err.message()
+                   << ": source file: " << kernelFile << "\n";
+    }
+
+    SmallString<256> tmpFile;
+    StringRef kernelFileName = sys::path::filename(fileAbsPath);
+    err = fs::createTemporaryFile(kernelFileName, "hip", tmpFile);
+    if (err) {
+      llvm::errs() << sOpenHipify << sErr << err.message()
+                   << ": source file: " << kernelFile << "\n";
+    }
+    err = fs::copy_file(kernelFile, tmpFile);
+    if (err) {
+      llvm::errs() << sOpenHipify << sErr << err.message()
+                   << ": while copying: " << fileAbsPath << " to " << tmpFile
+                   << "\n";
+    }
+  }
 
   return 0;
 } // namespace clang::toolingintmain(intargc,charconst**argv)

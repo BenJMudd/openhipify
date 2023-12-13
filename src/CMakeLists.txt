@@ -2,7 +2,7 @@ include_directories(${openhipify_SOURCE_DIR}/includes)
 
 add_clang_executable(openhipify
   main.cpp
-  reporting/Defs.cpp
+  utils/Defs.cpp
   args/Arguments.cpp
   )
 
