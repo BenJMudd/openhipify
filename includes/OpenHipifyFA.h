@@ -10,7 +10,6 @@ namespace ASTMatch = clang::ast_matchers;
 
 class OpenHipifyFA : public clang::ASTFrontendAction,
                      public ASTMatch::MatchFinder::MatchCallback {
-
   using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
 
 public:
