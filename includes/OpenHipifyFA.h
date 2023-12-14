@@ -22,6 +22,11 @@ private:
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
 
+  bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
+
+  void Replace_GET_GLOBAL_ID(const clang::CallExpr &callExpr,
+                             const ASTMatch::MatchFinder::MatchResult &res);
+
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
 };
