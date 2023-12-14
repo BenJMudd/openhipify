@@ -75,7 +75,7 @@ int main(int argc, const char **argv) {
     // generate a temporary file to work on in case of runtime
     // errors, as we do not want to corrupt the input file
     SmallString<256> tmpFile;
-    if (!Path::GenerateTempDuplicateFile(kernelFile, tmpFile)) {
+    if (!Path::GenerateTempDuplicateFile(kernelFile, "cl", tmpFile)) {
       continue;
     }
     std::string tmpFileStr = std::string(tmpFile.c_str());
