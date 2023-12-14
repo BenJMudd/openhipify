@@ -39,19 +39,17 @@ void OpenHipifyFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   else if (dimension == 2)
     hipDimension = 'z';
 
-  std::string hipReplacement("threadIdx.");
-  hipReplacement += hipDimension;
-  llvm::errs() << sOpenHipify
-               << "Replaced expression: " << hipReplacement.c_str() << "\n";
-
+  clang::SmallString<40> hipDimensionStr;
+  llvm::raw_svector_ostream hipDimOS(hipDimensionStr);
+  hipDimOS << "hipBlockDim_" << hipDimension << " * hipBlockIdx_"
+           << hipDimension << " + hipThreadIdx_" << hipDimension;
   const SourceManager *srcManager = res.SourceManager;
   SourceLocation startLoc = callExpr->getBeginLoc();
   SourceLocation endLoc = callExpr->getEndLoc();
   CharSourceRange exprCharRange =
       CharSourceRange::getTokenRange(startLoc, endLoc);
 
-  ct::Replacement replacement(*srcManager, exprCharRange,
-                              hipReplacement.c_str());
+  ct::Replacement replacement(*srcManager, exprCharRange, hipDimOS.str());
   llvm::consumeError(m_replacements.add(replacement));
 }
 

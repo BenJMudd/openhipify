@@ -91,7 +91,7 @@ int main(int argc, const char **argv) {
 
     // copy the temporary file including rewrites to designated
     // target file
-    std::string destFile = kernelFile + ".hip";
+    std::string destFile = kernelFile + ".cpp";
     err = fs::copy_file(tmpFile, destFile);
     if (err) {
       llvm::errs() << sOpenHipify << sErr << err.message() << ": while copying "
