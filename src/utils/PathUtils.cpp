@@ -7,7 +7,7 @@ using namespace llvm;
 namespace fs = sys::fs;
 
 namespace OpenHipify::Path {
-bool GenerateTempDuplicateFile(const std::string &file,
+bool GenerateTempDuplicateFile(const std::string &file, const std::string &ext,
                                SmallVectorImpl<char> &tmpFile) {
   SmallString<256> fileAbsPath;
   std::error_code err = fs::real_path(file, fileAbsPath, true);
@@ -18,7 +18,7 @@ bool GenerateTempDuplicateFile(const std::string &file,
   }
 
   StringRef kernelFileName = sys::path::filename(fileAbsPath);
-  err = fs::createTemporaryFile(kernelFileName, "hip", tmpFile);
+  err = fs::createTemporaryFile(kernelFileName, ext, tmpFile);
   if (err) {
     llvm::errs() << sOpenHipify << sErr << err.message()
                  << ": source file: " << file << "\n";

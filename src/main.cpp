@@ -1,9 +1,14 @@
+#include "OpenHipifyFA.h"
+#include "OpenHipifyFAFactory.h"
 #include "args/Arguments.h"
 #include "utils/Defs.h"
 #include "utils/PathUtils.h"
+
 #include "clang/Tooling/CommonOptionsParser.h"
+#include "clang/Tooling/Refactoring.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
+
 #include <sstream>
 
 using namespace llvm;
@@ -70,11 +75,19 @@ int main(int argc, const char **argv) {
     // generate a temporary file to work on in case of runtime
     // errors, as we do not want to corrupt the input file
     SmallString<256> tmpFile;
-    if (!Path::GenerateTempDuplicateFile(kernelFile, tmpFile)) {
+    if (!Path::GenerateTempDuplicateFile(kernelFile, "cl", tmpFile)) {
       continue;
     }
+    std::string tmpFileStr = std::string(tmpFile.c_str());
 
     // Do refactoring
+    ct::RefactoringTool refactoringTool(optParser.getCompilations(),
+                                        tmpFileStr);
+    ct::Replacements &replacements =
+        refactoringTool.getReplacements()[tmpFileStr];
+    OpenHipifyFAFactory<OpenHipifyFA> FAFactory(replacements);
+
+    int ret = refactoringTool.runAndSave(&FAFactory);
 
     // copy the temporary file including rewrites to designated
     // target file
