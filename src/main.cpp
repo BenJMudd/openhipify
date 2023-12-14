@@ -1,10 +1,13 @@
 #include "args/Arguments.h"
 #include "utils/Defs.h"
+#include "utils/PathUtils.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 #include <sstream>
+
 using namespace llvm;
+using namespace OpenHipify;
 namespace ct = clang::tooling;
 namespace fs = sys::fs;
 
@@ -55,32 +58,34 @@ int main(int argc, const char **argv) {
     return 1;
   }
 
+  // separate kernel and host files. kernel files need to be parsed
+  // first for host file kernel launch rewrites
   std::vector<std::string> kernelFiles;
   std::vector<std::string> hostFiles;
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
+
   std::error_code err;
   for (const auto &kernelFile : kernelFiles) {
-    SmallString<256> fileAbsPath;
-    err = fs::real_path(kernelFile, fileAbsPath, true);
-    if (err) {
-      llvm::errs() << sOpenHipify << sErr << err.message()
-                   << ": source file: " << kernelFile << "\n";
+    // generate a temporary file to work on in case of runtime
+    // errors, as we do not want to corrupt the input file
+    SmallString<256> tmpFile;
+    if (!Path::GenerateTempDuplicateFile(kernelFile, tmpFile)) {
+      continue;
     }
 
-    SmallString<256> tmpFile;
-    StringRef kernelFileName = sys::path::filename(fileAbsPath);
-    err = fs::createTemporaryFile(kernelFileName, "hip", tmpFile);
+    // Do refactoring
+
+    // copy the temporary file including rewrites to designated
+    // target file
+    std::string destFile = kernelFile + ".hip";
+    err = fs::copy_file(tmpFile, destFile);
     if (err) {
-      llvm::errs() << sOpenHipify << sErr << err.message()
-                   << ": source file: " << kernelFile << "\n";
+      llvm::errs() << sOpenHipify << sErr << err.message() << ": while copying "
+                   << tmpFile << " to " << destFile << "\n";
+      continue;
     }
-    err = fs::copy_file(kernelFile, tmpFile);
-    if (err) {
-      llvm::errs() << sOpenHipify << sErr << err.message()
-                   << ": while copying: " << fileAbsPath << " to " << tmpFile
-                   << "\n";
-    }
+    fs::remove(tmpFile);
   }
 
   return 0;
