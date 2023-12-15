@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OpenClDefs.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Core/Replacement.h"
@@ -24,8 +25,10 @@ private:
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
 
-  void Replace_GET_GLOBAL_ID(const clang::CallExpr &callExpr,
-                             const ASTMatch::MatchFinder::MatchResult &res);
+  void
+  ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
+                               const ASTMatch::MatchFinder::MatchResult &res,
+                               OpenCL::KernelFuncs funcIdent);
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
