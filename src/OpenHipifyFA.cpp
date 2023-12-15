@@ -49,20 +49,23 @@ bool OpenHipifyFA::OpenCLKernelFunctionDecl(
   llvm::consumeError(m_replacements.add(replacement));
 
   for (ParmVarDecl *param : funcDecl->parameters()) {
-    TypeSourceInfo *typeSrc = param->getTypeSourceInfo();
-    std::string typeStr = typeSrc->getType().getAsString();
-    // LangAS addrSpace = param->getType().getAddressSpace();
-    // auto openCLAddrSpaceLookup = OpenCL::OPENCL_ADDR_SPACES.find(addrSpace);
-    // if (openCLAddrSpaceLookup == OpenCL::OPENCL_ADDR_SPACES.end())
-    //   continue;
-
-    // OpenCL parameter found
-    for (const std::string &OPENCL_ADDR_SPACES :
+    std::string typeStr = param->getType().getAsString();
+    for (const std::string &openCLAddrSpaceStr :
          OpenCL::AddrSpace::SPACES_SET) {
-      if (typeStr.find(OPENCL_ADDR_SPACES) == std::string::npos)
+      size_t addrSpaceIdx = typeStr.find(openCLAddrSpaceStr);
+      if (addrSpaceIdx == std::string::npos)
         continue;
 
-      llvm::errs() << sOpenHipify << "Found attribute: " << typeStr << "\n";
+      // OpenCL parameter found
+      SourceLocation typeBeginLoc = param->getBeginLoc();
+      SourceLocation addrSpaceBeginLoc =
+          typeBeginLoc.getLocWithOffset(addrSpaceIdx);
+      SourceLocation addrSpaceEndLoc = typeBeginLoc.getLocWithOffset(
+          addrSpaceIdx + openCLAddrSpaceStr.size());
+      CharSourceRange addrSpaceRng =
+          CharSourceRange::getTokenRange(addrSpaceBeginLoc, addrSpaceEndLoc);
+      ct::Replacement replacement(*res.SourceManager, addrSpaceRng, {});
+      llvm::consumeError(m_replacements.add(replacement));
     }
   }
 
