@@ -42,15 +42,13 @@ bool OpenHipifyFA::OpenCLFunctionCall(
     return false;
 
   // Found OpenCL function call
-  bool ret;
   switch (funcSearch->second) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID:
   case OpenCL::KernelFuncs::GET_LOCAL_ID: {
-    ret = ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
+    ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
   } break;
-  default:
-    break;
   }
+
   return false;
 }
 
@@ -91,6 +89,7 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
   // Generate HIP replacement:
   clang::SmallString<40> hipDimensionStr;
   llvm::raw_svector_ostream hipDimOS(hipDimensionStr);
+  hipDimOS << "(";
   switch (funcIdent) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
     // hipBlockDim_DIM * hipBlockIdx_DIM + hipThreadIdx_DIM
@@ -102,10 +101,8 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     // hipThreadIdx_DIM
     hipDimOS << HIP::THREAD_IDX_GENERIC << hipDimension;
   } break;
-  default:
-    break;
   }
-
+  hipDimOS << ")";
   const SourceManager *srcManager = res.SourceManager;
   SourceLocation startLoc = callExpr.getBeginLoc();
   SourceLocation endLoc = callExpr.getEndLoc();
@@ -114,4 +111,5 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
 
   ct::Replacement replacement(*srcManager, exprCharRange, hipDimOS.str());
   llvm::consumeError(m_replacements.add(replacement));
+  return true;
 }
