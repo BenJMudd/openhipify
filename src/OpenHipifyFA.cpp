@@ -41,8 +41,13 @@ bool OpenHipifyFA::OpenCLKernelFunctionDecl(
   if (!funcDecl)
     return false;
 
-  llvm::errs() << sOpenHipify << "Found func decl!"
-               << "\n";
+  // Replace __kernel function attribute with HIP equivalent __global__
+  auto *kAttr = funcDecl->getAttr<OpenCLKernelAttr>();
+  CharSourceRange kAttrRng = CharSourceRange::getTokenRange(kAttr->getRange());
+  ct::Replacement replacement(*res.SourceManager, kAttrRng,
+                              HIP::GLOBAL_FUNC_ATTR);
+  llvm::consumeError(m_replacements.add(replacement));
+
   return true;
 }
 
