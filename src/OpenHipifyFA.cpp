@@ -48,6 +48,24 @@ bool OpenHipifyFA::OpenCLKernelFunctionDecl(
                               HIP::GLOBAL_FUNC_ATTR);
   llvm::consumeError(m_replacements.add(replacement));
 
+  for (ParmVarDecl *param : funcDecl->parameters()) {
+    TypeSourceInfo *typeSrc = param->getTypeSourceInfo();
+    std::string typeStr = typeSrc->getType().getAsString();
+    // LangAS addrSpace = param->getType().getAddressSpace();
+    // auto openCLAddrSpaceLookup = OpenCL::OPENCL_ADDR_SPACES.find(addrSpace);
+    // if (openCLAddrSpaceLookup == OpenCL::OPENCL_ADDR_SPACES.end())
+    //   continue;
+
+    // OpenCL parameter found
+    for (const std::string &OPENCL_ADDR_SPACES :
+         OpenCL::AddrSpace::SPACES_SET) {
+      if (typeStr.find(OPENCL_ADDR_SPACES) == std::string::npos)
+        continue;
+
+      llvm::errs() << sOpenHipify << "Found attribute: " << typeStr << "\n";
+    }
+  }
+
   return true;
 }
 
