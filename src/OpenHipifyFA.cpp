@@ -42,11 +42,11 @@ bool OpenHipifyFA::OpenCLFunctionCall(
     return false;
 
   // Found OpenCL function call
-
+  bool ret;
   switch (funcSearch->second) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID:
   case OpenCL::KernelFuncs::GET_LOCAL_ID: {
-    ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
+    ret = ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
   } break;
   default:
     break;
@@ -54,13 +54,13 @@ bool OpenHipifyFA::OpenCLFunctionCall(
   return false;
 }
 
-void OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
+bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     const clang::CallExpr &callExpr,
     const ASTMatch::MatchFinder::MatchResult &res,
     OpenCL::KernelFuncs funcIdent) {
   const Expr *dimensionArg = callExpr.getArg(0);
   if (!dimensionArg)
-    return;
+    return false;
 
   // Attempt to evaluate the dimension parameter. If possible we inplace
   // generate correspondent HIP code. If not we must insert a utility
@@ -69,7 +69,7 @@ void OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx))
-    return;
+    return false;
 
   APSInt dimension = dimensionFold.Val.getInt();
   char hipDimension;
@@ -79,6 +79,14 @@ void OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     hipDimension = 'y';
   else if (dimension == 2)
     hipDimension = 'z';
+  else {
+    llvm::errs() << sOpenHipify << sErr
+                 << "Out of range dimension identifier: " << dimension
+                 << " at location: "
+                 << dimensionArg->getExprLoc().printToString(*res.SourceManager)
+                 << "\n";
+    return false;
+  }
 
   // Generate HIP replacement:
   clang::SmallString<40> hipDimensionStr;
@@ -89,7 +97,6 @@ void OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension << " * "
              << HIP::BLOCK_IDX_GENERIC << hipDimension << " + "
              << HIP::THREAD_IDX_GENERIC << hipDimension;
-
   } break;
   case OpenCL::KernelFuncs::GET_LOCAL_ID: {
     // hipThreadIdx_DIM

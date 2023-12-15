@@ -25,7 +25,7 @@ private:
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
 
-  void
+  bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
                                const ASTMatch::MatchFinder::MatchResult &res,
                                OpenCL::KernelFuncs funcIdent);
