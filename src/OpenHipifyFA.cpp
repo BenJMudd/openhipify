@@ -42,10 +42,11 @@ bool OpenHipifyFA::OpenCLFunctionCall(
     return false;
 
   // Found OpenCL function call
-
+  bool ret;
   switch (funcSearch->second) {
-  case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
-    Replace_GET_GLOBAL_ID(*callExpr, res);
+  case OpenCL::KernelFuncs::GET_GLOBAL_ID:
+  case OpenCL::KernelFuncs::GET_LOCAL_ID: {
+    ret = ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
   } break;
   default:
     break;
@@ -53,20 +54,22 @@ bool OpenHipifyFA::OpenCLFunctionCall(
   return false;
 }
 
-void OpenHipifyFA::Replace_GET_GLOBAL_ID(
-    const CallExpr &callExpr, const ASTMatch::MatchFinder::MatchResult &res) {
+bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
+    const clang::CallExpr &callExpr,
+    const ASTMatch::MatchFinder::MatchResult &res,
+    OpenCL::KernelFuncs funcIdent) {
   const Expr *dimensionArg = callExpr.getArg(0);
   if (!dimensionArg)
-    return;
+    return false;
 
   // Attempt to evaluate the dimension parameter. If possible we inplace
-  // generate correspondent HIP code. If not we must insert a utility function.
-  // For most OpenCL code this will be easily evaluated
+  // generate correspondent HIP code. If not we must insert a utility
+  // function. For most OpenCL code this will be easily evaluated
   // TODO: generate utility function
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx))
-    return;
+    return false;
 
   APSInt dimension = dimensionFold.Val.getInt();
   char hipDimension;
@@ -76,14 +79,32 @@ void OpenHipifyFA::Replace_GET_GLOBAL_ID(
     hipDimension = 'y';
   else if (dimension == 2)
     hipDimension = 'z';
+  else {
+    llvm::errs() << sOpenHipify << sErr
+                 << "Out of range dimension identifier: " << dimension
+                 << " at location: "
+                 << dimensionArg->getExprLoc().printToString(*res.SourceManager)
+                 << "\n";
+    return false;
+  }
 
   // Generate HIP replacement:
-  // hipBlockDim_DIM * hipBlockIdx_DIM + hipThreadIdx_DIM
   clang::SmallString<40> hipDimensionStr;
   llvm::raw_svector_ostream hipDimOS(hipDimensionStr);
-  hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension << " * "
-           << HIP::BLOCK_IDX_GENERIC << hipDimension << " + "
-           << HIP::THREAD_IDX_GENERIC << hipDimension;
+  switch (funcIdent) {
+  case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
+    // hipBlockDim_DIM * hipBlockIdx_DIM + hipThreadIdx_DIM
+    hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension << " * "
+             << HIP::BLOCK_IDX_GENERIC << hipDimension << " + "
+             << HIP::THREAD_IDX_GENERIC << hipDimension;
+  } break;
+  case OpenCL::KernelFuncs::GET_LOCAL_ID: {
+    // hipThreadIdx_DIM
+    hipDimOS << HIP::THREAD_IDX_GENERIC << hipDimension;
+  } break;
+  default:
+    break;
+  }
 
   const SourceManager *srcManager = res.SourceManager;
   SourceLocation startLoc = callExpr.getBeginLoc();
