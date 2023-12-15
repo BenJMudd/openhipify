@@ -8,6 +8,7 @@ using namespace ASTMatch;
 using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
+const StringRef B_KERNEL_DECL = "kernelFuncDecl";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
@@ -17,12 +18,32 @@ OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  m_finder->addMatcher(
+      functionDecl(isExpansionInMainFile(), hasAttr(attr::OpenCLKernel))
+          .bind(B_KERNEL_DECL),
+      this);
+
   return m_finder->newASTConsumer();
 }
 
 void OpenHipifyFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (OpenCLFunctionCall(res))
     return;
+
+  if (OpenCLKernelFunctionDecl(res))
+    return;
+}
+
+bool OpenHipifyFA::OpenCLKernelFunctionDecl(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const FunctionDecl *funcDecl =
+      res.Nodes.getNodeAs<FunctionDecl>(B_KERNEL_DECL);
+  if (!funcDecl)
+    return false;
+
+  llvm::errs() << sOpenHipify << "Found func decl!"
+               << "\n";
+  return true;
 }
 
 bool OpenHipifyFA::OpenCLFunctionCall(

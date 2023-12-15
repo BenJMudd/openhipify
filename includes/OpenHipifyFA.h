@@ -24,6 +24,7 @@ private:
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
+  bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
 
   bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
