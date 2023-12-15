@@ -89,6 +89,7 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
   // Generate HIP replacement:
   clang::SmallString<40> hipDimensionStr;
   llvm::raw_svector_ostream hipDimOS(hipDimensionStr);
+  // TODO: only add comment guard for expr at end of stmt
   hipDimOS << "(";
   switch (funcIdent) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
