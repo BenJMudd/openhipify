@@ -8,6 +8,7 @@ using namespace ASTMatch;
 using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
+const StringRef B_KERNEL_DECL = "kernelFuncDecl";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
@@ -17,12 +18,63 @@ OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  m_finder->addMatcher(
+      functionDecl(isExpansionInMainFile(), hasAttr(attr::OpenCLKernel))
+          .bind(B_KERNEL_DECL),
+      this);
+
   return m_finder->newASTConsumer();
 }
 
 void OpenHipifyFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (OpenCLFunctionCall(res))
     return;
+
+  if (OpenCLKernelFunctionDecl(res))
+    return;
+}
+
+bool OpenHipifyFA::OpenCLKernelFunctionDecl(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const FunctionDecl *funcDecl =
+      res.Nodes.getNodeAs<FunctionDecl>(B_KERNEL_DECL);
+  if (!funcDecl)
+    return false;
+
+  // Replace __kernel function attribute with HIP equivalent __global__
+  auto *kAttr = funcDecl->getAttr<OpenCLKernelAttr>();
+  CharSourceRange kAttrRng = CharSourceRange::getTokenRange(kAttr->getRange());
+  ct::Replacement replacement(*res.SourceManager, kAttrRng,
+                              HIP::GLOBAL_FUNC_ATTR);
+  llvm::consumeError(m_replacements.add(replacement));
+
+  for (ParmVarDecl *param : funcDecl->parameters()) {
+    SourceRange paramRange = param->getSourceRange();
+    // read parameter string from source text
+    std::string typeStr(clang::Lexer::getSourceText(
+        clang::CharSourceRange::getTokenRange(paramRange), *res.SourceManager,
+        clang::LangOptions(), nullptr));
+    for (const std::string &openCLAddrSpaceStr :
+         OpenCL::AddrSpace::SPACES_SET) {
+      size_t addrSpaceIdx = typeStr.find(openCLAddrSpaceStr);
+      if (addrSpaceIdx == std::string::npos)
+        continue;
+
+      // OpenCL parameter found, strip memeory range
+      SourceLocation typeBeginLoc = param->getBeginLoc();
+      SourceLocation addrSpaceBeginLoc =
+          typeBeginLoc.getLocWithOffset(addrSpaceIdx);
+      SourceLocation addrSpaceEndLoc = typeBeginLoc.getLocWithOffset(
+          addrSpaceIdx + openCLAddrSpaceStr.size() + 1);
+      CharSourceRange addrSpaceRng =
+          CharSourceRange::getCharRange(addrSpaceBeginLoc, addrSpaceEndLoc);
+
+      ct::Replacement replacement(*res.SourceManager, addrSpaceRng, {});
+      llvm::consumeError(m_replacements.add(replacement));
+    }
+  }
+
+  return true;
 }
 
 bool OpenHipifyFA::OpenCLFunctionCall(
