@@ -49,21 +49,26 @@ bool OpenHipifyFA::OpenCLKernelFunctionDecl(
   llvm::consumeError(m_replacements.add(replacement));
 
   for (ParmVarDecl *param : funcDecl->parameters()) {
-    std::string typeStr = param->getType().getAsString();
+    SourceRange paramRange = param->getSourceRange();
+    // read parameter string from source text
+    std::string typeStr(clang::Lexer::getSourceText(
+        clang::CharSourceRange::getTokenRange(paramRange), *res.SourceManager,
+        clang::LangOptions(), nullptr));
     for (const std::string &openCLAddrSpaceStr :
          OpenCL::AddrSpace::SPACES_SET) {
       size_t addrSpaceIdx = typeStr.find(openCLAddrSpaceStr);
       if (addrSpaceIdx == std::string::npos)
         continue;
 
-      // OpenCL parameter found
+      // OpenCL parameter found, strip memeory range
       SourceLocation typeBeginLoc = param->getBeginLoc();
       SourceLocation addrSpaceBeginLoc =
           typeBeginLoc.getLocWithOffset(addrSpaceIdx);
       SourceLocation addrSpaceEndLoc = typeBeginLoc.getLocWithOffset(
-          addrSpaceIdx + openCLAddrSpaceStr.size());
+          addrSpaceIdx + openCLAddrSpaceStr.size() + 1);
       CharSourceRange addrSpaceRng =
-          CharSourceRange::getTokenRange(addrSpaceBeginLoc, addrSpaceEndLoc);
+          CharSourceRange::getCharRange(addrSpaceBeginLoc, addrSpaceEndLoc);
+
       ct::Replacement replacement(*res.SourceManager, addrSpaceRng, {});
       llvm::consumeError(m_replacements.add(replacement));
     }
