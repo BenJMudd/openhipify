@@ -217,7 +217,7 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     LangOptions LO;
     SourceLocation nextTokLoc = Lexer::getLocForEndOfToken(
         callExpr.getEndLoc(), 0, *res.SourceManager, LO);
-    Lexer::getRawToken(nextTokLoc, nextTok, *res.SourceManager, LO);
+    Lexer::getRawToken(nextTokLoc, nextTok, *res.SourceManager, LO, true);
     bool guardHipInsertion = nextTok.getKind() != tok::semi;
 
     if (guardHipInsertion)
