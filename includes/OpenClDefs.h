@@ -25,17 +25,26 @@ enum class KernelFuncs : uint32_t {
   GET_GLOBAL_ID,
   GET_LOCAL_ID,
   GET_GROUP_ID,
-  GET_LOCAL_SIZE
+  GET_LOCAL_SIZE,
+  BARRIER
 };
 
 const std::string GET_GLOBAL_ID = "get_global_id";
 const std::string GET_LOCAL_ID = "get_local_id";
 const std::string GET_GROUP_ID = "get_group_id";
 const std::string GET_LOCAL_SIZE = "get_local_size";
+
+const std::string BARRIER = "barrier";
+
 const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
     {GET_GLOBAL_ID, KernelFuncs::GET_GLOBAL_ID},
     {GET_LOCAL_ID, KernelFuncs::GET_LOCAL_ID},
     {GET_GROUP_ID, KernelFuncs::GET_GROUP_ID},
-    {GET_LOCAL_SIZE, KernelFuncs::GET_LOCAL_SIZE}};
+    {GET_LOCAL_SIZE, KernelFuncs::GET_LOCAL_SIZE},
+    {BARRIER, KernelFuncs::BARRIER}};
+
+// definitions
+const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
+const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 
 } // namespace OpenCL

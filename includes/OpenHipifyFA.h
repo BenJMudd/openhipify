@@ -30,6 +30,8 @@ private:
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
                                const ASTMatch::MatchFinder::MatchResult &res,
                                OpenCL::KernelFuncs funcIdent);
+  bool ReplaceBARRIER(const clang::CallExpr &callExpr,
+                      const ASTMatch::MatchFinder::MatchResult &res);
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
