@@ -101,9 +101,69 @@ bool OpenHipifyFA::OpenCLFunctionCall(
   case OpenCL::KernelFuncs::GET_LOCAL_SIZE: {
     ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
   } break;
+  case OpenCL::KernelFuncs::BARRIER: {
+    ReplaceBARRIER(*callExpr, res);
+  } break;
   }
 
   return false;
+}
+
+bool OpenHipifyFA::ReplaceBARRIER(
+    const clang::CallExpr &callExpr,
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const Expr *fenceTypeFlag = callExpr.getArg(0);
+  if (!fenceTypeFlag)
+    return false;
+
+  Expr::EvalResult fenceTypeEval;
+  const clang::ASTContext *ctx = res.Context;
+  // TODO: add aux function for false
+  if (!fenceTypeFlag->EvaluateAsInt(fenceTypeEval, *ctx))
+    return false;
+
+  APSInt fenceType = fenceTypeEval.Val.getInt();
+  const SourceManager *SM = res.SourceManager;
+  SourceLocation startLoc = callExpr.getBeginLoc();
+  SourceLocation endLoc = callExpr.getEndLoc();
+  CharSourceRange exprCharRange =
+      CharSourceRange::getTokenRange(startLoc, endLoc);
+
+  bool insertNewExpr = false;
+  if ((fenceType & OpenCL::CLK_LOCAL_MEM_FENCE) != 0) {
+    ct::Replacement replacement(*SM, exprCharRange, HIP::THREAD_FENCE_BLOCK);
+    llvm::consumeError(m_replacements.add(replacement));
+    insertNewExpr = true;
+  }
+  if ((fenceType & OpenCL::CLK_GLOBAL_MEM_FENCE) != 0) {
+    ct::Replacement replacement;
+    // If source contains both a local and a global fence, we must insert
+    // another statement for this. In OpenCL, this is done via bit
+    // flags, whereas in HIP this is done via separate function calls
+    if (insertNewExpr) {
+      // Lex to the end of the line
+      const char *barrierBuf = SM->getCharacterData(callExpr.getEndLoc());
+      const char *endBuf =
+          SM->getCharacterData(SM->getLocForEndOfFile(SM->getMainFileID()));
+      Lexer lex(callExpr.getEndLoc(), clang::LangOptions(), barrierBuf,
+                barrierBuf, endBuf);
+
+      clang::Token tok;
+      lex.LexFromRawLexer(tok);
+      while (tok.isNot(clang::tok::semi)) {
+        lex.LexFromRawLexer(tok);
+      }
+
+      // End of the line found, insert a new instruciton
+      std::string hipRepl = HIP::THREAD_FENCE;
+      hipRepl += ';';
+      replacement = ct::Replacement(*SM, tok.getEndLoc(), 0, hipRepl);
+    } else {
+      replacement = ct::Replacement(*SM, exprCharRange, HIP::THREAD_FENCE);
+    }
+    llvm::consumeError(m_replacements.add(replacement));
+  }
+  return true;
 }
 
 bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
@@ -180,6 +240,8 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
   case OpenCL::KernelFuncs::GET_LOCAL_SIZE: {
     hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension;
   } break;
+  default:
+    break;
   }
 
   const SourceManager *srcManager = res.SourceManager;
