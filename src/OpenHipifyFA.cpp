@@ -143,14 +143,32 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
   // Generate HIP replacement:
   clang::SmallString<40> hipDimensionStr;
   llvm::raw_svector_ostream hipDimOS(hipDimensionStr);
-  // TODO: only add comment guard for expr at end of stmt
-  hipDimOS << "(";
+
   switch (funcIdent) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
     // hipBlockDim_DIM * hipBlockIdx_DIM + hipThreadIdx_DIM
+
+    // Lex next token to see if it's a semi colon. If not, we
+    // guard the insertion as statements after can result in
+    // change in execution. E.g. get_global_id(0) * 2 would
+    // wrongly translate to hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x * 2
+    // without guard, incorrectly.
+    Token nextTok;
+    LangOptions LO;
+    SourceLocation nextTokLoc = Lexer::getLocForEndOfToken(
+        callExpr.getEndLoc(), 0, *res.SourceManager, LO);
+    Lexer::getRawToken(nextTokLoc, nextTok, *res.SourceManager, LO);
+    bool guardHipInsertion = nextTok.getKind() != tok::semi;
+
+    if (guardHipInsertion)
+      hipDimOS << "(";
+
     hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension << " * "
              << HIP::BLOCK_IDX_GENERIC << hipDimension << " + "
              << HIP::THREAD_IDX_GENERIC << hipDimension;
+
+    if (guardHipInsertion)
+      hipDimOS << ")";
   } break;
   case OpenCL::KernelFuncs::GET_LOCAL_ID: {
     // hipThreadIdx_DIM
@@ -163,7 +181,7 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension;
   } break;
   }
-  hipDimOS << ")";
+
   const SourceManager *srcManager = res.SourceManager;
   SourceLocation startLoc = callExpr.getBeginLoc();
   SourceLocation endLoc = callExpr.getEndLoc();
