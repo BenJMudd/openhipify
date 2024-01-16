@@ -1,5 +1,6 @@
-#include "OpenHipifyFA.h"
 #include "OpenHipifyFAFactory.h"
+#include "OpenHipifyHostFA.h"
+#include "OpenHipifyKernelFA.h"
 #include "args/Arguments.h"
 #include "utils/Defs.h"
 #include "utils/PathUtils.h"
@@ -47,6 +48,38 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
 } // namespace
   // llvm::sys::fs'boolSortSourceFilePaths(conststd::vector<std::string>&srcList,std::vector<std::string>&kernelSrcList,std::vector<std::string>&hostSrcList)
 
+template <class FRONTEND_ACTION>
+void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser) {
+  std::error_code err;
+
+  // generate a temporary file to work on in case of runtime
+  // errors, as we do not want to corrupt the input file
+  SmallString<256> tmpFile;
+  if (!Path::GenerateTempDuplicateFile(file, "cl", tmpFile)) {
+    return;
+  }
+  std::string tmpFileStr = std::string(tmpFile.c_str());
+
+  // Do refactoring
+  ct::RefactoringTool refactoringTool(optParser.getCompilations(), tmpFileStr);
+  ct::Replacements &replacements =
+      refactoringTool.getReplacements()[tmpFileStr];
+  OpenHipifyFAFactory<FRONTEND_ACTION> FAFactory(replacements);
+
+  int ret = refactoringTool.runAndSave(&FAFactory);
+
+  // copy the temporary file including rewrites to designated
+  // target file
+  std::string destFile = file + ".cpp";
+  err = fs::copy_file(tmpFile, destFile);
+  if (err) {
+    llvm::errs() << sOpenHipify << sErr << err.message() << ": while copying "
+                 << tmpFile << " to " << destFile << "\n";
+    return;
+  }
+  fs::remove(tmpFile);
+}
+
 int main(int argc, const char **argv) {
   auto cop = ct::CommonOptionsParser::create(
       argc, argv, OpenHipifyToolTemplateCategory, llvm::cl::ZeroOrMore);
@@ -70,35 +103,12 @@ int main(int argc, const char **argv) {
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
 
-  std::error_code err;
   for (const auto &kernelFile : kernelFiles) {
-    // generate a temporary file to work on in case of runtime
-    // errors, as we do not want to corrupt the input file
-    SmallString<256> tmpFile;
-    if (!Path::GenerateTempDuplicateFile(kernelFile, "cl", tmpFile)) {
-      continue;
-    }
-    std::string tmpFileStr = std::string(tmpFile.c_str());
+    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser);
+  }
 
-    // Do refactoring
-    ct::RefactoringTool refactoringTool(optParser.getCompilations(),
-                                        tmpFileStr);
-    ct::Replacements &replacements =
-        refactoringTool.getReplacements()[tmpFileStr];
-    OpenHipifyFAFactory<OpenHipifyFA> FAFactory(replacements);
-
-    int ret = refactoringTool.runAndSave(&FAFactory);
-
-    // copy the temporary file including rewrites to designated
-    // target file
-    std::string destFile = kernelFile + ".cpp";
-    err = fs::copy_file(tmpFile, destFile);
-    if (err) {
-      llvm::errs() << sOpenHipify << sErr << err.message() << ": while copying "
-                   << tmpFile << " to " << destFile << "\n";
-      continue;
-    }
-    fs::remove(tmpFile);
+  for (const auto &hostFile : hostFiles) {
+    ProcessFile<OpenHipifyHostFA>(hostFile, optParser);
   }
 
   return 0;
