@@ -209,9 +209,8 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
     const FunctionDecl &funcDecl = *callExpr.getDirectCallee();
     SourceRange srcRange = funcDecl.getNameInfo().getSourceRange();
     CharSourceRange nameRange = CharSourceRange::getTokenRange(srcRange);
-
-    InsertAuxFunction(*res.SourceManager, nameRange,
-                      HIP::AUX_FUNCS::GET_GLOBAL_ID);
+    auto auxFunc = HIP::OPENCL_HIP_AUX_FUNC_MAP.find(funcIdent);
+    InsertAuxFunction(*res.SourceManager, nameRange, auxFunc->second);
     return true;
   }
 
