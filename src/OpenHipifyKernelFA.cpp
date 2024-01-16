@@ -107,21 +107,31 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   return false;
 }
 
-void OpenHipifyKernelFA::InsertAuxiliaryFunction(
-    const SourceManager &srcManager, HIP::AUX_FUNCS func) {
-  if (m_auxFunctions.find(func) != m_auxFunctions.end())
-    return;
+void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
+                                           CharSourceRange funcNameRng,
+                                           HIP::AUX_FUNCS func) {
 
-  SourceLocation loc =
+  SourceLocation funcInsertloc =
       srcManager.getLocForStartOfFile(srcManager.getMainFileID());
   auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
   if (funcToInsert == HIP::AUX_FUNC_MAP.end())
     return;
 
   const std::string &funcBody = funcToInsert->second.second;
-  ct::Replacement replacement(srcManager, loc, 0, funcBody);
-  llvm::consumeError(m_replacements.add(replacement));
-  m_auxFunctions.insert(func);
+  const std::string &funcName = funcToInsert->second.first;
+
+  // If the function hasn't already been added, insert it at the beginning of
+  // the file
+  if (m_auxFunctions.find(func) == m_auxFunctions.end()) {
+    ct::Replacement replacementBody(srcManager, funcInsertloc, 0, funcBody);
+    llvm::consumeError(m_replacements.add(replacementBody));
+    m_auxFunctions.insert(func);
+  }
+
+  // Rename the original function call to the auxiliary function
+  ct::Replacement replacementName(srcManager, funcNameRng, funcName);
+  llvm::consumeError(m_replacements.add(replacementName));
+  return;
 }
 
 bool OpenHipifyKernelFA::ReplaceBARRIER(
@@ -195,20 +205,13 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
-    HIP::AUX_FUNCS funcId = HIP::AUX_FUNCS::GET_GLOBAL_ID;
-    InsertAuxiliaryFunction(*res.SourceManager, funcId);
+    // Can't fold, insert and call an auxiliary function
+    const FunctionDecl &funcDecl = *callExpr.getDirectCallee();
+    SourceRange srcRange = funcDecl.getNameInfo().getSourceRange();
+    CharSourceRange nameRange = CharSourceRange::getTokenRange(srcRange);
 
-    auto funcToInsert = HIP::AUX_FUNC_MAP.find(funcId);
-    if (funcToInsert == HIP::AUX_FUNC_MAP.end())
-      return false;
-
-    const std::string &funcName = funcToInsert->second.first;
-    SourceRange funcDeclRng =
-        callExpr.getDirectCallee()->getNameInfo().getSourceRange();
-    CharSourceRange funcDeclCharRng =
-        CharSourceRange::getTokenRange(funcDeclRng);
-    ct::Replacement replacement(*res.SourceManager, funcDeclCharRng, funcName);
-    llvm::consumeError(m_replacements.add(replacement));
+    InsertAuxFunction(*res.SourceManager, nameRange,
+                      HIP::AUX_FUNCS::GET_GLOBAL_ID);
     return true;
   }
 
