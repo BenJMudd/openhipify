@@ -16,7 +16,12 @@ const std::string THREAD_FENCE = "__threadfence()";
 const std::string THREAD_FENCE_BLOCK = "__threadfence_block()";
 
 // Auxiliary function fefinitions
-enum class AUX_FUNCS : uint32_t { GET_GLOBAL_ID, GET_LOCAL_ID };
+enum class AUX_FUNCS : uint32_t {
+  GET_GLOBAL_ID,
+  GET_LOCAL_ID,
+  GET_GROUP_ID,
+  GET_LOCAL_SIZE
+};
 
 const std::string GET_GLOBAL_ID_DEF = "__get_global_id";
 const std::string GET_GLOBAL_ID =
@@ -57,12 +62,54 @@ const std::string GET_LOCAL_ID = "__device size_t __get_local_id(uint dim) {"
                                  "}"
                                  "}";
 
+const std::string GET_GROUP_ID_DEF = "__get_group_id";
+const std::string GET_GROUP_ID = "__device size_t __get_group_id(uint dim) {"
+                                 "switch (dim) {"
+                                 "case 0: {"
+                                 "return hipBlockIdx_x;"
+                                 "} break;"
+                                 "case 1: {"
+                                 "return hipBlockIdx_y;"
+                                 "} break;"
+                                 "case 2: {"
+                                 "return hipBlockIdx_z;"
+                                 "}"
+                                 "break;"
+                                 "default: {"
+                                 "return 0;"
+                                 "} break;"
+                                 "}"
+                                 "}";
+
+const std::string GET_LOCAL_SIZE_DEF = "__get_group_id";
+const std::string GET_LOCAL_SIZE = "__device size_t __get_group_id(uint dim) {"
+                                   "switch (dim) {"
+                                   "case 0: {"
+                                   "return hipBlockDim_x;"
+                                   "} break;"
+                                   "case 1: {"
+                                   "return hipBlockDim_y;"
+                                   "} break;"
+                                   "case 2: {"
+                                   "return hipBlockDim_z;"
+                                   "}"
+                                   "break;"
+                                   "default: {"
+                                   "return 0;"
+                                   "} break;"
+                                   "}"
+                                   "}";
+
 const std::map<AUX_FUNCS, std::pair<std::string, std::string>> AUX_FUNC_MAP{
     {AUX_FUNCS::GET_GLOBAL_ID, {GET_GLOBAL_ID_DEF, GET_GLOBAL_ID}},
-    {AUX_FUNCS::GET_LOCAL_ID, {GET_LOCAL_ID_DEF, GET_LOCAL_ID}}};
+    {AUX_FUNCS::GET_LOCAL_ID, {GET_LOCAL_ID_DEF, GET_LOCAL_ID}},
+    {AUX_FUNCS::GET_GROUP_ID, {GET_GROUP_ID_DEF, GET_GROUP_ID}},
+    {AUX_FUNCS::GET_LOCAL_SIZE, {GET_LOCAL_SIZE_DEF, GET_LOCAL_SIZE}}};
 
 const std::map<OpenCL::KernelFuncs, AUX_FUNCS> OPENCL_HIP_AUX_FUNC_MAP{
     {OpenCL::KernelFuncs::GET_GLOBAL_ID, AUX_FUNCS::GET_GLOBAL_ID},
-    {OpenCL::KernelFuncs::GET_LOCAL_ID, AUX_FUNCS::GET_LOCAL_ID}};
+    {OpenCL::KernelFuncs::GET_LOCAL_ID, AUX_FUNCS::GET_LOCAL_ID},
+    {OpenCL::KernelFuncs::GET_GROUP_ID, AUX_FUNCS::GET_GROUP_ID},
+    {OpenCL::KernelFuncs::GET_LOCAL_SIZE, AUX_FUNCS::GET_LOCAL_SIZE}};
 
 } // namespace HIP
