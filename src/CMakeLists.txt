@@ -4,7 +4,8 @@ add_clang_executable(openhipify
   utils/Defs.cpp
   args/Arguments.cpp
   utils/PathUtils.cpp
-  OpenHipifyFA.cpp
+  OpenHipifyKernelFA.cpp
+  OpenHipifyHostFA.cpp
   main.cpp
   )
 

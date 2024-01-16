@@ -1,4 +1,4 @@
-#include "OpenHipifyFA.h"
+#include "OpenHipifyKernelFA.h"
 #include "HIPDefs.h"
 #include "OpenClDefs.h"
 #include "utils/Defs.h"
@@ -11,7 +11,7 @@ const StringRef B_CALL_EXPR = "callExpr";
 const StringRef B_KERNEL_DECL = "kernelFuncDecl";
 
 std::unique_ptr<ASTConsumer>
-OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+OpenHipifyKernelFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder.reset(new ASTMatch::MatchFinder);
 
   // case matching
@@ -26,7 +26,7 @@ OpenHipifyFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return m_finder->newASTConsumer();
 }
 
-void OpenHipifyFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
+void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (OpenCLFunctionCall(res))
     return;
 
@@ -34,7 +34,7 @@ void OpenHipifyFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
     return;
 }
 
-bool OpenHipifyFA::OpenCLKernelFunctionDecl(
+bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
     const ASTMatch::MatchFinder::MatchResult &res) {
   const FunctionDecl *funcDecl =
       res.Nodes.getNodeAs<FunctionDecl>(B_KERNEL_DECL);
@@ -77,7 +77,7 @@ bool OpenHipifyFA::OpenCLKernelFunctionDecl(
   return true;
 }
 
-bool OpenHipifyFA::OpenCLFunctionCall(
+bool OpenHipifyKernelFA::OpenCLFunctionCall(
     const ASTMatch::MatchFinder::MatchResult &res) {
   const CallExpr *callExpr = res.Nodes.getNodeAs<CallExpr>(B_CALL_EXPR);
   if (!callExpr)
@@ -109,7 +109,7 @@ bool OpenHipifyFA::OpenCLFunctionCall(
   return false;
 }
 
-bool OpenHipifyFA::ReplaceBARRIER(
+bool OpenHipifyKernelFA::ReplaceBARRIER(
     const clang::CallExpr &callExpr,
     const ASTMatch::MatchFinder::MatchResult &res) {
   const Expr *fenceTypeFlag = callExpr.getArg(0);
@@ -166,7 +166,7 @@ bool OpenHipifyFA::ReplaceBARRIER(
   return true;
 }
 
-bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
+bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
     const clang::CallExpr &callExpr,
     const ASTMatch::MatchFinder::MatchResult &res,
     OpenCL::KernelFuncs funcIdent) {
@@ -218,6 +218,7 @@ bool OpenHipifyFA::ReplaceGET_GENERIC_THREAD_ID(
     SourceLocation nextTokLoc = Lexer::getLocForEndOfToken(
         callExpr.getEndLoc(), 0, *res.SourceManager, LO);
     Lexer::getRawToken(nextTokLoc, nextTok, *res.SourceManager, LO, true);
+
     bool guardHipInsertion = nextTok.getKind() != tok::semi;
 
     if (guardHipInsertion)

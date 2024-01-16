@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clang/Tooling/Core/Replacement.h"
 #include "clang/Tooling/Tooling.h"
 
 namespace ct = clang::tooling;
