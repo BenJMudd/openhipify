@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HIPDefs.h"
 #include "OpenClDefs.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/FrontendAction.h"
@@ -26,12 +27,18 @@ private:
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
 
+  void InsertAuxFunction(const clang::SourceManager &srcManager,
+                         clang::CharSourceRange funcNameRng,
+                         HIP::AUX_FUNC_ID func);
+
   bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
                                const ASTMatch::MatchFinder::MatchResult &res,
                                OpenCL::KernelFuncs funcIdent);
   bool ReplaceBARRIER(const clang::CallExpr &callExpr,
                       const ASTMatch::MatchFinder::MatchResult &res);
+
+  std::set<HIP::AUX_FUNC_ID> m_auxFunctions;
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;

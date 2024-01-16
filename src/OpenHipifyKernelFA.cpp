@@ -1,6 +1,4 @@
 #include "OpenHipifyKernelFA.h"
-#include "HIPDefs.h"
-#include "OpenClDefs.h"
 #include "utils/Defs.h"
 #include "clang/Frontend/CompilerInstance.h"
 
@@ -109,6 +107,33 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   return false;
 }
 
+void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
+                                           CharSourceRange funcNameRng,
+                                           HIP::AUX_FUNC_ID func) {
+
+  SourceLocation funcInsertloc =
+      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
+  auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
+  if (funcToInsert == HIP::AUX_FUNC_MAP.end())
+    return;
+
+  const std::string &funcBody = funcToInsert->second.second;
+  const std::string &funcName = funcToInsert->second.first;
+
+  // If the function hasn't already been added, insert it at the beginning of
+  // the file
+  if (m_auxFunctions.find(func) == m_auxFunctions.end()) {
+    ct::Replacement replacementBody(srcManager, funcInsertloc, 0, funcBody);
+    llvm::consumeError(m_replacements.add(replacementBody));
+    m_auxFunctions.insert(func);
+  }
+
+  // Rename the original function call to the auxiliary function
+  ct::Replacement replacementName(srcManager, funcNameRng, funcName);
+  llvm::consumeError(m_replacements.add(replacementName));
+  return;
+}
+
 bool OpenHipifyKernelFA::ReplaceBARRIER(
     const clang::CallExpr &callExpr,
     const ASTMatch::MatchFinder::MatchResult &res) {
@@ -177,11 +202,17 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   // Attempt to evaluate the dimension parameter. If possible we inplace
   // generate correspondent HIP code. If not we must insert a utility
   // function. For most OpenCL code this will be easily evaluated
-  // TODO: generate utility function
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
-  if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx))
-    return false;
+  if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
+    // Can't fold, insert and call an auxiliary function
+    const FunctionDecl &funcDecl = *callExpr.getDirectCallee();
+    SourceRange srcRange = funcDecl.getNameInfo().getSourceRange();
+    CharSourceRange nameRange = CharSourceRange::getTokenRange(srcRange);
+    auto auxFunc = HIP::OPENCL_HIP_AUX_FUNC_MAP.find(funcIdent);
+    InsertAuxFunction(*res.SourceManager, nameRange, auxFunc->second);
+    return true;
+  }
 
   APSInt dimension = dimensionFold.Val.getInt();
   char hipDimension;
