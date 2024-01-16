@@ -118,7 +118,8 @@ void OpenHipifyKernelFA::InsertAuxiliaryFunction(
   if (funcToInsert == HIP::AUX_FUNC_MAP.end())
     return;
 
-  ct::Replacement replacement(srcManager, loc, 0, funcToInsert->second);
+  const std::string &funcBody = funcToInsert->second.second;
+  ct::Replacement replacement(srcManager, loc, 0, funcBody);
   llvm::consumeError(m_replacements.add(replacement));
   m_auxFunctions.insert(func);
 }
@@ -194,7 +195,20 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
-    InsertAuxiliaryFunction(*res.SourceManager, HIP::AUX_FUNCS::TEST_FUNC);
+    HIP::AUX_FUNCS funcId = HIP::AUX_FUNCS::GET_GLOBAL_ID;
+    InsertAuxiliaryFunction(*res.SourceManager, funcId);
+
+    auto funcToInsert = HIP::AUX_FUNC_MAP.find(funcId);
+    if (funcToInsert == HIP::AUX_FUNC_MAP.end())
+      return false;
+
+    const std::string &funcName = funcToInsert->second.first;
+    SourceRange funcDeclRng =
+        callExpr.getDirectCallee()->getNameInfo().getSourceRange();
+    CharSourceRange funcDeclCharRng =
+        CharSourceRange::getTokenRange(funcDeclRng);
+    ct::Replacement replacement(*res.SourceManager, funcDeclCharRng, funcName);
+    llvm::consumeError(m_replacements.add(replacement));
     return true;
   }
 
