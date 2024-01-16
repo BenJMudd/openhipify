@@ -109,7 +109,7 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
                                            CharSourceRange funcNameRng,
-                                           HIP::AUX_FUNCS func) {
+                                           HIP::AUX_FUNC_ID func) {
 
   SourceLocation funcInsertloc =
       srcManager.getLocForStartOfFile(srcManager.getMainFileID());
