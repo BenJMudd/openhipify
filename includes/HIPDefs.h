@@ -1,3 +1,6 @@
+#include <map>
+#include <string>
+
 namespace HIP {
 // Kernel
 
@@ -12,6 +15,11 @@ const std::string THREAD_FENCE = "__threadfence()";
 const std::string THREAD_FENCE_BLOCK = "__threadfence_block()";
 
 // Auxiliary function fefinitions
-const std::string TEST_FUNC = "__global void test() {return;}";
+enum class AUX_FUNCS : uint32_t { TEST_FUNC };
+
+const std::string TEST_FUNC = "__global void test() {/*Hi*/return;}";
+
+const std::map<AUX_FUNCS, std::string> AUX_FUNC_MAP{
+    {AUX_FUNCS::TEST_FUNC, TEST_FUNC}};
 
 } // namespace HIP

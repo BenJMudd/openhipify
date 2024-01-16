@@ -1,6 +1,4 @@
 #include "OpenHipifyKernelFA.h"
-#include "HIPDefs.h"
-#include "OpenClDefs.h"
 #include "utils/Defs.h"
 #include "clang/Frontend/CompilerInstance.h"
 
@@ -110,11 +108,19 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
 }
 
 void OpenHipifyKernelFA::InsertAuxiliaryFunction(
-    const SourceManager &srcManager) {
+    const SourceManager &srcManager, HIP::AUX_FUNCS func) {
+  if (m_auxFunctions.find(func) != m_auxFunctions.end())
+    return;
+
   SourceLocation loc =
       srcManager.getLocForStartOfFile(srcManager.getMainFileID());
-  ct::Replacement replacement(srcManager, loc, 0, HIP::TEST_FUNC);
+  auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
+  if (funcToInsert == HIP::AUX_FUNC_MAP.end())
+    return;
+
+  ct::Replacement replacement(srcManager, loc, 0, funcToInsert->second);
   llvm::consumeError(m_replacements.add(replacement));
+  m_auxFunctions.insert(func);
 }
 
 bool OpenHipifyKernelFA::ReplaceBARRIER(
@@ -185,11 +191,10 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   // Attempt to evaluate the dimension parameter. If possible we inplace
   // generate correspondent HIP code. If not we must insert a utility
   // function. For most OpenCL code this will be easily evaluated
-  // TODO: generate utility function
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
-    InsertAuxiliaryFunction(*res.SourceManager);
+    InsertAuxiliaryFunction(*res.SourceManager, HIP::AUX_FUNCS::TEST_FUNC);
     return true;
   }
 
