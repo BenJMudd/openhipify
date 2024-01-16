@@ -11,4 +11,7 @@ const std::string THREAD_IDX_GENERIC = "hipThreadIdx_";
 const std::string THREAD_FENCE = "__threadfence()";
 const std::string THREAD_FENCE_BLOCK = "__threadfence_block()";
 
+// Auxiliary function fefinitions
+const std::string TEST_FUNC = "__global void test() {return;}";
+
 } // namespace HIP

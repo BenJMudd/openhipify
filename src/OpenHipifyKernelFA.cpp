@@ -109,6 +109,14 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   return false;
 }
 
+void OpenHipifyKernelFA::InsertAuxiliaryFunction(
+    const SourceManager &srcManager) {
+  SourceLocation loc =
+      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
+  ct::Replacement replacement(srcManager, loc, 0, HIP::TEST_FUNC);
+  llvm::consumeError(m_replacements.add(replacement));
+}
+
 bool OpenHipifyKernelFA::ReplaceBARRIER(
     const clang::CallExpr &callExpr,
     const ASTMatch::MatchFinder::MatchResult &res) {
@@ -180,8 +188,10 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   // TODO: generate utility function
   Expr::EvalResult dimensionFold;
   const clang::ASTContext *ctx = res.Context;
-  if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx))
-    return false;
+  if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
+    InsertAuxiliaryFunction(*res.SourceManager);
+    return true;
+  }
 
   APSInt dimension = dimensionFold.Val.getInt();
   char hipDimension;

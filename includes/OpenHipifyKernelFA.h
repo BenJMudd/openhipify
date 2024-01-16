@@ -26,6 +26,8 @@ private:
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
 
+  void InsertAuxiliaryFunction(const clang::SourceManager &srcManager);
+
   bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
                                const ASTMatch::MatchFinder::MatchResult &res,
