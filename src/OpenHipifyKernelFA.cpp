@@ -32,6 +32,27 @@ void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
     return;
 }
 
+void OpenHipifyKernelFA::EndSourceFileAction() {
+  // Inserting auxiliary functions
+  std::string auxFuncs;
+  llvm::raw_string_ostream auxFuncStream(auxFuncs);
+
+  // Concatonate into singular string for a single insert
+  for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
+    auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
+
+    const std::string &funcBody = funcToInsert->second.second;
+    auxFuncStream << funcBody;
+  }
+
+  SourceManager &srcManager = getCompilerInstance().getSourceManager();
+  SourceLocation funcInsertloc =
+      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
+  ct::Replacement replacementBody(srcManager, funcInsertloc, 0,
+                                  auxFuncStream.str());
+  llvm::consumeError(m_replacements.add(replacementBody));
+}
+
 bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
     const ASTMatch::MatchFinder::MatchResult &res) {
   const FunctionDecl *funcDecl =
@@ -111,26 +132,16 @@ void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
                                            CharSourceRange funcNameRng,
                                            HIP::AUX_FUNC_ID func) {
 
-  SourceLocation funcInsertloc =
-      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
   auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
   if (funcToInsert == HIP::AUX_FUNC_MAP.end())
     return;
 
-  const std::string &funcBody = funcToInsert->second.second;
   const std::string &funcName = funcToInsert->second.first;
-
-  // If the function hasn't already been added, insert it at the beginning of
-  // the file
-  if (m_auxFunctions.find(func) == m_auxFunctions.end()) {
-    ct::Replacement replacementBody(srcManager, funcInsertloc, 0, funcBody);
-    llvm::consumeError(m_replacements.add(replacementBody));
-    m_auxFunctions.insert(func);
-  }
 
   // Rename the original function call to the auxiliary function
   ct::Replacement replacementName(srcManager, funcNameRng, funcName);
   llvm::consumeError(m_replacements.add(replacementName));
+  m_auxFunctions.insert(func);
   return;
 }
 
