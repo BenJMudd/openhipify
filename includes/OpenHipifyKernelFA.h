@@ -23,6 +23,7 @@ private:
 
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
+  void EndSourceFileAction() override;
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
