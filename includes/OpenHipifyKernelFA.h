@@ -15,8 +15,14 @@ class OpenHipifyKernelFA : public clang::ASTFrontendAction,
   using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
 
 public:
-  explicit OpenHipifyKernelFA(ct::Replacements &replacements)
-      : clang::ASTFrontendAction(), m_replacements(replacements) {}
+  // Kernel file name -> [(function name, function definition), ...]
+  using KernelFuncMap =
+      std::map<std::string, std::vector<std::pair<std::string, std::string>>>;
+
+  explicit OpenHipifyKernelFA(ct::Replacements &replacements,
+                              KernelFuncMap &kFuncMap)
+      : clang::ASTFrontendAction(), m_kernelFuncMap(kFuncMap),
+        m_replacements(replacements) {}
 
 private:
   void run(const ASTMatch::MatchFinder::MatchResult &res) override;
@@ -27,6 +33,9 @@ private:
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
+
+  void AppendKernelFuncMap(const clang::FunctionDecl &funcDecl,
+                           const std::vector<ct::Replacement> &replacements);
 
   void InsertAuxFunction(const clang::SourceManager &srcManager,
                          clang::CharSourceRange funcNameRng,
@@ -40,6 +49,7 @@ private:
                       const ASTMatch::MatchFinder::MatchResult &res);
 
   std::set<HIP::AUX_FUNC_ID> m_auxFunctions;
+  KernelFuncMap &m_kernelFuncMap;
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;

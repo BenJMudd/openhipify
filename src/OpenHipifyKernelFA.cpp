@@ -40,7 +40,6 @@ void OpenHipifyKernelFA::EndSourceFileAction() {
   // Concatonate into singular string for a single insert
   for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
     auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
-
     const std::string &funcBody = funcToInsert->second.second;
     auxFuncStream << funcBody;
   }
@@ -59,6 +58,8 @@ bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
       res.Nodes.getNodeAs<FunctionDecl>(B_KERNEL_DECL);
   if (!funcDecl)
     return false;
+
+  std::vector<ct::Replacement> functionReplacements;
 
   // Replace __kernel function attribute with HIP equivalent __global__
   auto *kAttr = funcDecl->getAttr<OpenCLKernelAttr>();
@@ -89,10 +90,13 @@ bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
           CharSourceRange::getCharRange(addrSpaceBeginLoc, addrSpaceEndLoc);
 
       ct::Replacement replacement(*res.SourceManager, addrSpaceRng, {});
+      functionReplacements.push_back(replacement);
+
       llvm::consumeError(m_replacements.add(replacement));
     }
   }
 
+  AppendKernelFuncMap(*funcDecl, functionReplacements);
   return true;
 }
 
@@ -126,6 +130,40 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   }
 
   return false;
+}
+
+void OpenHipifyKernelFA::AppendKernelFuncMap(
+    const FunctionDecl &funcDecl,
+    const std::vector<ct::Replacement> &replacements) {
+  StringRef fileName = getCurrentFile();
+  fileName.consume_front("/tmp/");
+  size_t index = fileName.rfind('-');
+  fileName = fileName.take_front(index);
+
+  const SourceManager &srcManager = getCompilerInstance().getSourceManager();
+  SourceRange funcDeclRange(funcDecl.getTypeSpecStartLoc(),
+                            funcDecl.getTypeSpecEndLoc());
+
+  // reading the function declaration
+  LangOptions LO;
+  CharSourceRange charSrcRng = CharSourceRange::getCharRange(funcDeclRange);
+  std::string funcDeclStrRaw(Lexer::getSourceText(charSrcRng, srcManager, LO));
+
+  // Applying replacements
+  unsigned baseOffset =
+      srcManager.getFileOffset(funcDecl.getTypeSpecStartLoc());
+  size_t offset = 0;
+  std::string funcDeclStr = "__global__ ";
+  for (auto &replacement : replacements) {
+    funcDeclStr += funcDeclStrRaw.substr(offset, replacement.getOffset() -
+                                                     offset - baseOffset);
+    funcDeclStr += replacement.getReplacementText();
+    offset = replacement.getOffset() - baseOffset + replacement.getLength();
+  }
+  funcDeclStr += funcDeclStrRaw.substr(offset);
+  funcDeclStr += ");";
+
+  llvm::errs() << sOpenHipify << funcDeclStr << "\n";
 }
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
