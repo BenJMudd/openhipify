@@ -67,7 +67,7 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
       refactoringTool.getReplacements()[tmpFileStr];
   OpenHipifyFAFactory<FRONTEND_ACTION> FAFactory(replacements, kFuncMap);
 
-  int ret = refactoringTool.runAndSave(&FAFactory);
+  [[maybe_unused]] int ret = refactoringTool.runAndSave(&FAFactory);
 
   // copy the temporary file including rewrites to designated
   // target file

@@ -34,22 +34,29 @@ void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 
 void OpenHipifyKernelFA::EndSourceFileAction() {
   // Inserting auxiliary functions
-  std::string auxFuncs;
-  llvm::raw_string_ostream auxFuncStream(auxFuncs);
+  if (!m_auxFunctions.empty()) {
 
-  // Concatonate into singular string for a single insert
-  for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
-    auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
-    const std::string &funcBody = funcToInsert->second.second;
-    auxFuncStream << funcBody;
+    std::string auxFuncs;
+    llvm::raw_string_ostream auxFuncStream(auxFuncs);
+
+    auxFuncStream << sOpenHipifyGenerated;
+
+    // Concatonate into singular string for a single insert
+    for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
+      auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
+      const std::string &funcBody = funcToInsert->second.second;
+      auxFuncStream << funcBody;
+    }
+
+    auxFuncStream << sOpenHipifyGeneratedEnd;
+
+    SourceManager &srcManager = getCompilerInstance().getSourceManager();
+    SourceLocation funcInsertloc =
+        srcManager.getLocForStartOfFile(srcManager.getMainFileID());
+    ct::Replacement replacementBody(srcManager, funcInsertloc, 0,
+                                    auxFuncStream.str());
+    llvm::consumeError(m_replacements.add(replacementBody));
   }
-
-  SourceManager &srcManager = getCompilerInstance().getSourceManager();
-  SourceLocation funcInsertloc =
-      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
-  ct::Replacement replacementBody(srcManager, funcInsertloc, 0,
-                                  auxFuncStream.str());
-  llvm::consumeError(m_replacements.add(replacementBody));
 }
 
 bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
