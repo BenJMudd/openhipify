@@ -170,7 +170,7 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   funcDeclStr += funcDeclStrRaw.substr(offset);
   funcDeclStr += ");";
 
-  llvm::errs() << sOpenHipify << funcDeclStr << "\n";
+  m_kernelFuncMap[fileName.str()].emplace_back(funcDecl.getName(), funcDeclStr);
 }
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
