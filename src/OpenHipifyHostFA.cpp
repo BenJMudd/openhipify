@@ -12,7 +12,7 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 
   // case matching
   m_finder->addMatcher(varDecl(isExpansionInMainFile(),
-                               hasType(cxxRecordDecl(hasName("cl::Kernel"))))
+                               hasType(cxxRecordDecl(hasName("cl_Kernel"))))
                            .bind(B_KERNEL_DEF),
                        this);
 
@@ -25,11 +25,13 @@ void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 }
 
 bool OpenHipifyHostFA::KernelDefinition(
+    // Doesnt work
     const ASTMatch::MatchFinder::MatchResult &res) {
   const VarDecl *kernelDecl = res.Nodes.getNodeAs<VarDecl>(B_KERNEL_DEF);
   if (!kernelDecl)
     return false;
 
-  llvm::errs() << sOpenHipify << "\n";
+  llvm::errs() << sOpenHipify << "Found kernel def"
+               << "\n";
   return true;
 }

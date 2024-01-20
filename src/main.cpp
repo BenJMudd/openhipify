@@ -50,13 +50,14 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
 
 template <class FRONTEND_ACTION>
 void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
-                 OpenHipifyKernelFA::KernelFuncMap &kFuncMap) {
+                 OpenHipifyKernelFA::KernelFuncMap &kFuncMap, bool isKernel) {
   std::error_code err;
 
   // generate a temporary file to work on in case of runtime
   // errors, as we do not want to corrupt the input file
   SmallString<256> tmpFile;
-  if (!Path::GenerateTempDuplicateFile(file, "cl", tmpFile)) {
+  if (!Path::GenerateTempDuplicateFile(file, isKernel ? "cl" : "cpp",
+                                       tmpFile)) {
     return;
   }
   std::string tmpFileStr = std::string(tmpFile.c_str());
@@ -106,11 +107,11 @@ int main(int argc, const char **argv) {
 
   OpenHipifyKernelFA::KernelFuncMap kernelFuncMap;
   for (const auto &kernelFile : kernelFiles) {
-    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser, kernelFuncMap);
+    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser, kernelFuncMap, true);
   }
 
   for (const auto &hostFile : hostFiles) {
-    ProcessFile<OpenHipifyHostFA>(hostFile, optParser, kernelFuncMap);
+    ProcessFile<OpenHipifyHostFA>(hostFile, optParser, kernelFuncMap, false);
   }
 
   return 0;
