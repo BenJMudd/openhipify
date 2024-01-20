@@ -15,9 +15,9 @@ class OpenHipifyKernelFA : public clang::ASTFrontendAction,
   using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
 
 public:
-  // Kernel file name -> [(function name, function definition), ...]
+  // Kernel function name -> (function definition, file name)
   using KernelFuncMap =
-      std::map<std::string, std::vector<std::pair<std::string, std::string>>>;
+      std::map<std::string, std::pair<std::string, std::string>>;
 
   explicit OpenHipifyKernelFA(ct::Replacements &replacements,
                               KernelFuncMap &kFuncMap)

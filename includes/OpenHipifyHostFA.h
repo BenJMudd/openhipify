@@ -26,6 +26,8 @@ private:
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
 
+  bool KernelDefinition(const ASTMatch::MatchFinder::MatchResult &res);
+
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
   MatchFinderPtr m_finder;

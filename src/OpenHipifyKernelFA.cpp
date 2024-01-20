@@ -170,7 +170,8 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   funcDeclStr += funcDeclStrRaw.substr(offset);
   funcDeclStr += ");";
 
-  m_kernelFuncMap[fileName.str()].emplace_back(funcDecl.getName(), funcDeclStr);
+  // TODO: Handle error where there are 2 kernels of the same name
+  m_kernelFuncMap[funcDecl.getName().str()] = {funcDeclStr, fileName.str()};
 }
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
