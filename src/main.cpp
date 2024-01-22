@@ -36,7 +36,7 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
     std::string fileType = file.substr(dotIdx);
     if (fileType == ".cl") {
       kernelSrcList.push_back(file);
-    } else if (fileType == ".cpp") {
+    } else if (fileType == ".c") {
       hostSrcList.push_back(file);
     } else {
       llvm::errs() << errMsg(file);
@@ -56,8 +56,7 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
   // generate a temporary file to work on in case of runtime
   // errors, as we do not want to corrupt the input file
   SmallString<256> tmpFile;
-  if (!Path::GenerateTempDuplicateFile(file, isKernel ? "cl" : "cpp",
-                                       tmpFile)) {
+  if (!Path::GenerateTempDuplicateFile(file, isKernel ? "cl" : "c", tmpFile)) {
     return;
   }
   std::string tmpFileStr = std::string(tmpFile.c_str());

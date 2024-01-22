@@ -47,4 +47,15 @@ const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
 const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
 const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 
+// Host
+enum class HostFuncs { clCreateBuffer };
+
+// Memory function calls
+
+const std::string CL_CREATE_BUFFER = "clCreateBuffer";
+const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer};
+
+const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
+    {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer}};
+
 } // namespace OpenCL

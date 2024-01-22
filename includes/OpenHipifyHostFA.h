@@ -26,7 +26,10 @@ private:
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
 
-  bool KernelDefinition(const ASTMatch::MatchFinder::MatchResult &res);
+  bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
+
+  bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
+                                OpenCL::HostFuncs func);
 
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
