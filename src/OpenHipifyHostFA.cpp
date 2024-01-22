@@ -59,9 +59,22 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 
     // grab parent of binary expr, and get the lhs of assignment
     // TODO: recursive search
-    if (const auto *parent = callExprParIter->get<BinaryOperator>()) {
-      llvm::errs() << sOpenHipify << "Found Binary Expr!\n";
+    const BinaryOperator *binaryOp;
+    binaryOp = callExprParIter->get<BinaryOperator>();
+    if (!binaryOp)
+      return false;
+
+    // size of buffer to be created
+    const Expr *bufSize = callExpr->getArg(2);
+    if (!bufSize) {
+      return false;
     }
+
+    // Buffer address space on target
+    const Expr *LHS = binaryOp->getLHS();
+
+    // Get the source of these two here
+    // need to rename definition of LHS to a void type
 
   } break;
 
