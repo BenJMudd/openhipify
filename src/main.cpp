@@ -36,7 +36,7 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
     std::string fileType = file.substr(dotIdx);
     if (fileType == ".cl") {
       kernelSrcList.push_back(file);
-    } else if (fileType == ".cpp") {
+    } else if (fileType == ".c") {
       hostSrcList.push_back(file);
     } else {
       llvm::errs() << errMsg(file);
@@ -49,13 +49,14 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
   // llvm::sys::fs'boolSortSourceFilePaths(conststd::vector<std::string>&srcList,std::vector<std::string>&kernelSrcList,std::vector<std::string>&hostSrcList)
 
 template <class FRONTEND_ACTION>
-void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser) {
+void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
+                 OpenHipifyKernelFA::KernelFuncMap &kFuncMap, bool isKernel) {
   std::error_code err;
 
   // generate a temporary file to work on in case of runtime
   // errors, as we do not want to corrupt the input file
   SmallString<256> tmpFile;
-  if (!Path::GenerateTempDuplicateFile(file, "cl", tmpFile)) {
+  if (!Path::GenerateTempDuplicateFile(file, isKernel ? "cl" : "c", tmpFile)) {
     return;
   }
   std::string tmpFileStr = std::string(tmpFile.c_str());
@@ -64,9 +65,9 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser) {
   ct::RefactoringTool refactoringTool(optParser.getCompilations(), tmpFileStr);
   ct::Replacements &replacements =
       refactoringTool.getReplacements()[tmpFileStr];
-  OpenHipifyFAFactory<FRONTEND_ACTION> FAFactory(replacements);
+  OpenHipifyFAFactory<FRONTEND_ACTION> FAFactory(replacements, kFuncMap);
 
-  int ret = refactoringTool.runAndSave(&FAFactory);
+  [[maybe_unused]] int ret = refactoringTool.runAndSave(&FAFactory);
 
   // copy the temporary file including rewrites to designated
   // target file
@@ -103,12 +104,13 @@ int main(int argc, const char **argv) {
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
 
+  OpenHipifyKernelFA::KernelFuncMap kernelFuncMap;
   for (const auto &kernelFile : kernelFiles) {
-    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser);
+    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser, kernelFuncMap, true);
   }
 
   for (const auto &hostFile : hostFiles) {
-    ProcessFile<OpenHipifyHostFA>(hostFile, optParser);
+    ProcessFile<OpenHipifyHostFA>(hostFile, optParser, kernelFuncMap, false);
   }
 
   return 0;

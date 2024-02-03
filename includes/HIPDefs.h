@@ -42,7 +42,7 @@ const std::string GET_GLOBAL_ID_BODY =
     "return 0;"
     "} break;"
     "}"
-    "}\n\n";
+    "}\n";
 
 const std::string GET_LOCAL_ID_FUNC_NAME = "__get_local_id";
 const std::string GET_LOCAL_ID_BODY = "__device size_t " +
@@ -63,7 +63,7 @@ const std::string GET_LOCAL_ID_BODY = "__device size_t " +
                                       "return 0;"
                                       "} break;"
                                       "}"
-                                      "}\n\n";
+                                      "}\n";
 
 const std::string GET_GROUP_ID_FUNC_NAME = "__get_group_id";
 const std::string GET_GROUP_ID_BODY = "__device size_t " +
@@ -84,7 +84,7 @@ const std::string GET_GROUP_ID_BODY = "__device size_t " +
                                       "return 0;"
                                       "} break;"
                                       "}"
-                                      "}\n\n";
+                                      "}\n";
 
 const std::string GET_LOCAL_SIZE_FUNC_NAME = "__get_group_id";
 const std::string GET_LOCAL_SIZE_BODY = "__device size_t " +
@@ -105,7 +105,7 @@ const std::string GET_LOCAL_SIZE_BODY = "__device size_t " +
                                         "return 0;"
                                         "} break;"
                                         "}"
-                                        "}\n\n";
+                                        "}\n";
 
 const std::map<AUX_FUNC_ID, std::pair<std::string, std::string>> AUX_FUNC_MAP{
     {AUX_FUNC_ID::GET_GLOBAL_ID, {GET_GLOBAL_ID_FUNC_NAME, GET_GLOBAL_ID_BODY}},
@@ -119,5 +119,14 @@ const std::map<OpenCL::KernelFuncs, AUX_FUNC_ID> OPENCL_HIP_AUX_FUNC_MAP{
     {OpenCL::KernelFuncs::GET_LOCAL_ID, AUX_FUNC_ID::GET_LOCAL_ID},
     {OpenCL::KernelFuncs::GET_GROUP_ID, AUX_FUNC_ID::GET_GROUP_ID},
     {OpenCL::KernelFuncs::GET_LOCAL_SIZE, AUX_FUNC_ID::GET_LOCAL_SIZE}};
+
+// Host
+// Functions
+const std::string HIP_MALLOC = "hipMalloc";
+// Types
+const std::string VOID_PTR = "void*";
+
+// Misc
+const std::string EOL = ";";
 
 } // namespace HIP

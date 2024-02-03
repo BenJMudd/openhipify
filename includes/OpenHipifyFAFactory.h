@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OpenHipifyKernelFA.h"
 #include "clang/Tooling/Core/Replacement.h"
 #include "clang/Tooling/Tooling.h"
 
@@ -9,13 +10,16 @@ namespace ct = clang::tooling;
 template <typename T>
 class OpenHipifyFAFactory : public ct::FrontendActionFactory {
 public:
-  explicit OpenHipifyFAFactory(ct::Replacements &replacements)
-      : ct::FrontendActionFactory(), m_replacements(replacements) {}
+  explicit OpenHipifyFAFactory(ct::Replacements &replacements,
+                               OpenHipifyKernelFA::KernelFuncMap &kFuncMap)
+      : ct::FrontendActionFactory(), m_replacements(replacements),
+        m_kernelFuncMap(kFuncMap) {}
 
   std::unique_ptr<clang::FrontendAction> create() override {
-    return std::make_unique<T>(m_replacements);
+    return std::make_unique<T>(m_replacements, m_kernelFuncMap);
   }
 
 private:
   ct::Replacements &m_replacements;
+  OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 };
