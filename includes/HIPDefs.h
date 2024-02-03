@@ -120,4 +120,13 @@ const std::map<OpenCL::KernelFuncs, AUX_FUNC_ID> OPENCL_HIP_AUX_FUNC_MAP{
     {OpenCL::KernelFuncs::GET_GROUP_ID, AUX_FUNC_ID::GET_GROUP_ID},
     {OpenCL::KernelFuncs::GET_LOCAL_SIZE, AUX_FUNC_ID::GET_LOCAL_SIZE}};
 
+// Host
+// Functions
+const std::string HIP_MALLOC = "hipMalloc";
+// Types
+const std::string VOID_PTR = "void*";
+
+// Misc
+const std::string EOL = ";";
+
 } // namespace HIP
