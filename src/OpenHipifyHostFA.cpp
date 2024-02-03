@@ -55,31 +55,38 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
   SourceManager &SM = getCompilerInstance().getSourceManager();
   switch (func) {
   case OpenCL::HostFuncs::clCreateBuffer: {
-    llvm::errs() << sOpenHipify << "Found clCreateBuffer!\n";
     auto callExprParIter = astCtx.getParents(*callExpr).begin();
 
-    // grab parent of callExpr
+    // Grab parent of callExpr
     // TODO: Support other cases than just vardecl, e.g. binary expression
     const VarDecl *varDecl;
     varDecl = callExprParIter->get<VarDecl>();
     if (!varDecl)
       return false;
 
-    // renaming the type from cl_mem -> void*
+    // Renaming the type from cl_mem -> void*
     SourceLocation typeBeginLoc = varDecl->getBeginLoc();
     std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
     ct::Replacement typeReplacement(SM, typeBeginLoc, typeStr.length(),
                                     HIP::VOID_PTR);
     llvm::consumeError(m_replacements.add(typeReplacement));
 
-    // end vardecl type with ;
-    // Lex to end
+    // end vardecl type with ; to split call into two statements:
+    //
+    // cl_mem mem = clCreateBuffer(...);
+    //
+    // void* mem;
+    // hipMalloc((void**) &mem, ...);
+    //
     // TODO: come up with a better way to do this
+
+    // Finding SourceLocation for: cl_mem mem = clCreateBuffer(...);
+    //                                        ^
     const char *varDeclStartBuf = SM.getCharacterData(varDecl->getBeginLoc());
-    const char *varDeclEndBuf =
+    const char *fileEndBuf =
         SM.getCharacterData(SM.getLocForEndOfFile(SM.getMainFileID()));
     Lexer lex(typeBeginLoc, clang::LangOptions(), varDeclStartBuf,
-              varDeclStartBuf, varDeclEndBuf);
+              varDeclStartBuf, fileEndBuf);
 
     clang::Token tok;
     lex.LexFromRawLexer(tok);
@@ -87,25 +94,24 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
       lex.LexFromRawLexer(tok);
     }
 
-    // Need location of start of function call
-    // replace the tok loc to this with ;
-
+    // Range created from equal token and start of function call
+    // cl_mem mem = clCreateBuffer(...);
+    //            ^^^
     CharSourceRange binaryExprRng = CharSourceRange::getTokenRange(
         tok.getLocation(), callExpr->getBeginLoc());
 
-    std::string eolAndHipMalloc;
-    llvm::raw_string_ostream eolAndHipMallocStr(eolAndHipMalloc);
-    eolAndHipMallocStr << HIP::EOL << HIP::HIP_MALLOC;
-    ct::Replacement binaryExprRepl(SM, binaryExprRng, eolAndHipMallocStr.str());
+    std::string splitExpr;
+    llvm::raw_string_ostream splitExprStr(splitExpr);
+    splitExprStr << HIP::EOL << HIP::HIP_MALLOC;
+
+    // Final replacement for splitting we change the function call as well
+    // cl_mem mem = clCreateBuffer(...);
+    // cl_mem mem ; hipMalloc(...);
+    ct::Replacement binaryExprRepl(SM, binaryExprRng, splitExprStr.str());
     llvm::consumeError(m_replacements.add(binaryExprRepl));
 
-    // TODO: assert correct number of args
-
-    SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
-    SourceLocation argEnd = callExpr->getEndLoc();
-    CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
-
-    // size of buffer to be created
+    // Argument replacement
+    // size of buffer argument extracted
     const Expr *bufSize = callExpr->getArg(2);
     if (!bufSize) {
       return false;
@@ -116,19 +122,20 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
     std::string bufSizeExprStr(
         Lexer::getSourceText(bufSizeSrcRng, SM, LangOptions(), nullptr));
 
-    // Name of buffer
+    // Name of mem variable extracted
     std::string varName = varDecl->getNameAsString();
 
-    // Replacing clCreateBuffer arg calls with hipMalloc calls
+    // Whole argument replacement
+    SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
+    SourceLocation argEnd = callExpr->getEndLoc();
+    CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+
     std::string newArgs;
     llvm::raw_string_ostream newArgsStr(newArgs);
-
     newArgsStr << HIP::VOID_PTR_PTR_CAST << "&" << varName << ","
                << bufSizeExprStr;
     ct::Replacement argsRepl(SM, argRng, newArgsStr.str());
     llvm::consumeError(m_replacements.add(argsRepl));
-
-    llvm::errs() << sOpenHipify << "\n";
   } break;
 
   default:
