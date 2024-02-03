@@ -99,11 +99,34 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
     ct::Replacement binaryExprRepl(SM, binaryExprRng, eolAndHipMallocStr.str());
     llvm::consumeError(m_replacements.add(binaryExprRepl));
 
+    // TODO: assert correct number of args
+
+    SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
+    SourceLocation argEnd = callExpr->getEndLoc();
+    CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+
     // size of buffer to be created
     const Expr *bufSize = callExpr->getArg(2);
     if (!bufSize) {
       return false;
     }
+
+    CharSourceRange bufSizeSrcRng =
+        CharSourceRange::getTokenRange(bufSize->getSourceRange());
+    std::string bufSizeExprStr(
+        Lexer::getSourceText(bufSizeSrcRng, SM, LangOptions(), nullptr));
+
+    // Name of buffer
+    std::string varName = varDecl->getNameAsString();
+
+    // Replacing clCreateBuffer arg calls with hipMalloc calls
+    std::string newArgs;
+    llvm::raw_string_ostream newArgsStr(newArgs);
+
+    newArgsStr << HIP::VOID_PTR_PTR_CAST << "&" << varName << ","
+               << bufSizeExprStr;
+    ct::Replacement argsRepl(SM, argRng, newArgsStr.str());
+    llvm::consumeError(m_replacements.add(argsRepl));
 
     llvm::errs() << sOpenHipify << "\n";
   } break;

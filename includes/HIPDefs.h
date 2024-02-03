@@ -125,6 +125,7 @@ const std::map<OpenCL::KernelFuncs, AUX_FUNC_ID> OPENCL_HIP_AUX_FUNC_MAP{
 const std::string HIP_MALLOC = "hipMalloc";
 // Types
 const std::string VOID_PTR = "void*";
+const std::string VOID_PTR_PTR_CAST = "(void**)";
 
 // Misc
 const std::string EOL = ";";
