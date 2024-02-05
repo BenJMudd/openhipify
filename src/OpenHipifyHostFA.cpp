@@ -46,6 +46,12 @@ bool OpenHipifyHostFA::FunctionCall(
     HandleMemoryFunctionCall(callExpr, *iter);
   }
 
+  auto iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
+  if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
+    // Kernel related function found
+    HandleKernelFunctionCall(callExpr, *iter);
+  }
+
   return false;
 }
 
@@ -59,6 +65,8 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clEnqueueWriteBuffer: {
     return ReplaceEnqueWriteBuffer(callExpr);
   }
+  default: {
+  } break;
   }
 
   return false;
@@ -211,4 +219,17 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   llvm::consumeError(m_replacements.add(argsRepl));
 
   return true;
+}
+
+bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
+                                                OpenCL::HostFuncs func) {
+  switch (func) {
+  case OpenCL::HostFuncs::clSetKernelArg: {
+    return ReplaceCreateBuffer(callExpr);
+  } break;
+  default: {
+  } break;
+  }
+
+  return false;
 }

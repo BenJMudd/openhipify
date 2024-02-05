@@ -48,7 +48,7 @@ const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
 const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 
 // Host
-enum class HostFuncs { clCreateBuffer, clEnqueueWriteBuffer };
+enum class HostFuncs { clCreateBuffer, clEnqueueWriteBuffer, clSetKernelArg };
 
 // Memory function calls
 const std::string CL_CREATE_BUFFER = "clCreateBuffer";
@@ -56,8 +56,13 @@ const std::string CL_ENQUEUE_WRITE_BUFFER = "clEnqueueWriteBuffer";
 const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer,
                                          HostFuncs::clEnqueueWriteBuffer};
 
+// Kernel launch function calls
+const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
+const std::set<HostFuncs> HOST_KERNEL_FUNCS{HostFuncs::clSetKernelArg};
+
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
-    {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer}};
+    {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer},
+    {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg}};
 
 } // namespace OpenCL
