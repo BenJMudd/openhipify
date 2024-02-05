@@ -30,6 +30,14 @@ private:
 
   bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
+  bool HandleKernelFunctionCall(const clang::CallExpr *callExpr,
+                                OpenCL::HostFuncs func);
+
+  // Memory function call replacements
+  bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceEnqueWriteBuffer(const clang::CallExpr *callExpr);
+
+  // Kernel function call replacements
 
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
