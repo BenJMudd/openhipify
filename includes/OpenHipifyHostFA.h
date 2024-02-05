@@ -31,6 +31,10 @@ private:
   bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
 
+  // Memeory function call replacements
+  bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceEnqueWriteBuffer(const clang::CallExpr *callExpr);
+
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
   MatchFinderPtr m_finder;

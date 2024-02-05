@@ -48,14 +48,16 @@ const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
 const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 
 // Host
-enum class HostFuncs { clCreateBuffer };
+enum class HostFuncs { clCreateBuffer, clEnqueueWriteBuffer };
 
 // Memory function calls
-
 const std::string CL_CREATE_BUFFER = "clCreateBuffer";
-const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer};
+const std::string CL_ENQUEUE_WRITE_BUFFER = "clEnqueueWriteBuffer";
+const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer,
+                                         HostFuncs::clEnqueueWriteBuffer};
 
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
-    {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer}};
+    {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
+    {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer}};
 
 } // namespace OpenCL

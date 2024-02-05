@@ -122,10 +122,13 @@ const std::map<OpenCL::KernelFuncs, AUX_FUNC_ID> OPENCL_HIP_AUX_FUNC_MAP{
 
 // Host
 // Functions
-const std::string HIP_MALLOC = "hipMalloc";
+const std::string MALLOC = "hipMalloc";
+const std::string MEMCPY = "hipMemcpy";
 // Types
 const std::string VOID_PTR = "void*";
 const std::string VOID_PTR_PTR_CAST = "(void**)";
+// Values
+const std::string MEMCPY_HOST_DEVICE = "hipMemcpyHostToDevice";
 
 // Misc
 const std::string EOL = ";";
