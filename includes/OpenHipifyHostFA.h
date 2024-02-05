@@ -38,6 +38,7 @@ private:
   bool ReplaceEnqueWriteBuffer(const clang::CallExpr *callExpr);
 
   // Kernel function call replacements
+  bool TrackKernelSetArg(const clang::CallExpr *callExpr);
 
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 

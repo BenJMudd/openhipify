@@ -46,7 +46,7 @@ bool OpenHipifyHostFA::FunctionCall(
     HandleMemoryFunctionCall(callExpr, *iter);
   }
 
-  auto iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
+  iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
   if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
     // Kernel related function found
     HandleKernelFunctionCall(callExpr, *iter);
@@ -225,11 +225,29 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
                                                 OpenCL::HostFuncs func) {
   switch (func) {
   case OpenCL::HostFuncs::clSetKernelArg: {
-    return ReplaceCreateBuffer(callExpr);
+    return TrackKernelSetArg(callExpr);
   } break;
   default: {
   } break;
   }
 
   return false;
+}
+bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
+  SourceManager &SM = getCompilerInstance().getSourceManager();
+
+  const Expr *arg1 = callExpr->getArg(0)->IgnoreCasts();
+  const DeclRefExpr *kernelRef = dyn_cast<DeclRefExpr>(arg1);
+  if (!kernelRef) {
+    llvm::errs()
+        << sOpenHipify << sErr
+        << "kernel argument at: " << arg1->getExprLoc().printToString(SM)
+        << " is not a variable reference. This is currently unsupported.";
+    return false;
+  }
+
+  llvm::errs() << sOpenHipify << "Found kernel ref: " << kernelRef->getDecl()
+               << "\n";
+
+  return true;
 }
