@@ -19,7 +19,88 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return m_finder->newASTConsumer();
 }
 
-void OpenHipifyHostFA::EndSourceFileAction() {}
+void OpenHipifyHostFA::EndSourceFileAction() {
+  const SourceManager &SM = getCompilerInstance().getSourceManager();
+  ASTContext &astCtx = getCompilerInstance().getASTContext();
+  m_kernelTracker.Finalise(SM);
+
+  for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
+    // args are indexed in
+    std::vector<std::string> args;
+    std::vector<bool> argsUse;
+    args.resize(kInfo.args.size());
+    argsUse.resize(kInfo.args.size());
+    std::fill(argsUse.begin(), argsUse.end(), false);
+
+    size_t numArgs = 0;
+
+    // Set after the first launch command has been processed
+    bool argsFinalised = false;
+
+    auto argIter = kInfo.args.begin();
+    auto launchIter = kInfo.launches.begin();
+    while (argIter != kInfo.args.end() && launchIter != kInfo.launches.end()) {
+      const CallExpr *setArgExpr = *argIter;
+      const CallExpr *launchKernelExpr = *launchIter;
+      unsigned argPos = SM.getFileOffset(setArgExpr->getBeginLoc());
+      unsigned launchPos = SM.getFileOffset(launchKernelExpr->getBeginLoc());
+      if (argPos < launchPos) {
+        // Handle setting argument case
+        // Extract arg number
+        const Expr *argPosExpr = setArgExpr->getArg(1);
+        Expr::EvalResult argPosEval;
+        if (!argPosExpr->EvaluateAsInt(argPosEval, astCtx)) {
+          llvm::errs()
+              << sOpenHipify << sErr
+              << "Unable to parse kernel argument position at position: "
+              << argPosExpr->getExprLoc().printToString(SM);
+          argIter++;
+          continue;
+        }
+
+        uint64_t argPos = argPosEval.Val.getInt().getExtValue();
+
+        // Extract text for kernel argument
+        const Expr *kernelArgExpr = setArgExpr->getArg(3);
+        CharSourceRange kernelArgRng =
+            CharSourceRange::getTokenRange(kernelArgExpr->getSourceRange());
+        std::string kernelArgStr(
+            Lexer::getSourceText(kernelArgRng, SM, LangOptions(), nullptr));
+
+        // Track
+        if (argPos > args.size()) {
+          // Extract text for whole of kernel
+          CharSourceRange setKArgStr =
+              CharSourceRange::getTokenRange(setArgExpr->getSourceRange());
+          std::string setKernelArgStr(
+              Lexer::getSourceText(setKArgStr, SM, LangOptions(), nullptr));
+          llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
+                       << setKernelArgStr << "\' at location: "
+                       << setArgExpr->getExprLoc().printToString(SM)
+                       << " references argument number: " << argPos
+                       << " where the kernel contains at maximum only "
+                       << args.size() << " argument(s).";
+          argIter++;
+          continue;
+        }
+        args[argPos] = kernelArgStr;
+        argsUse[argPos] = true;
+        if (argPos > numArgs) {
+          numArgs = argPos;
+        }
+
+        argIter++;
+      } else {
+        // Handle launching kernel case
+
+        launchIter++;
+      }
+    }
+  }
+
+  llvm::errs() << sOpenHipify << "End of file action"
+               << "\n";
+}
 
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
@@ -283,8 +364,8 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
   }
 
   std::string kernelStr(kernelName->getString());
-  // TODO: involve tracking with cl_program to resolve ambiguity if two kernels
-  // have the same name in different files
+  // TODO: involve tracking with cl_program to resolve ambiguity if two
+  // kernels have the same name in different files
 
   m_kernelTracker.InsertName(kernelDecl, kernelStr);
   return true;
