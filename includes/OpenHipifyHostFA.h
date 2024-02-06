@@ -26,6 +26,7 @@ private:
 
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
+  void EndSourceFileAction() override;
 
   bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
 
@@ -41,6 +42,7 @@ private:
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
   bool TrackKernelLaunch(const clang::CallExpr *callExpr);
+  bool TrackKernelCreate(const clang::CallExpr *callExpr);
 
   bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
                                 size_t argIndex,

@@ -8,9 +8,9 @@ public:
 
   void InsertArg(const clang::ValueDecl *kernelDecl,
                  const clang::CallExpr *callExpr);
-
   void InsertLaunch(const clang::ValueDecl *kernelDecl,
                     const clang::CallExpr *callExpr);
+  void InsertName(const clang::ValueDecl *kernelDecl, std::string kernelName);
 
   void Finalise();
 

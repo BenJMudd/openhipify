@@ -11,3 +11,9 @@ void KernelTracker::InsertLaunch(const clang::ValueDecl *kernelDecl,
   KernelInfo &kernel = m_tracker[kernelDecl];
   kernel.launches.emplace_back(launchExpr->getBeginLoc(), launchExpr);
 }
+
+void KernelTracker::InsertName(const clang::ValueDecl *kernelDecl,
+                               std::string kernelName) {
+  KernelInfo &kernel = m_tracker[kernelDecl];
+  kernel.funcName = kernelName;
+}

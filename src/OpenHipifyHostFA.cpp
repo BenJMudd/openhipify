@@ -19,6 +19,8 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return m_finder->newASTConsumer();
 }
 
+void OpenHipifyHostFA::EndSourceFileAction() {}
+
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
     return;
@@ -230,6 +232,9 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clEnqueueNDRangeKernel: {
     return TrackKernelLaunch(callExpr);
   }
+  case OpenCL::HostFuncs::clCreateKernel: {
+    return TrackKernelCreate(callExpr);
+  }
   default: {
   } break;
   }
@@ -254,6 +259,34 @@ bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
   }
 
   m_kernelTracker.InsertLaunch(kernelDecl, callExpr);
+  return true;
+}
+
+bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
+  ASTContext &astCtx = getCompilerInstance().getASTContext();
+  SourceManager &SM = getCompilerInstance().getSourceManager();
+
+  auto callExprParIter = astCtx.getParents(*callExpr).begin();
+  // Grab kernel declaration
+  const VarDecl *kernelDecl = callExprParIter->get<VarDecl>();
+  if (!kernelDecl)
+    return false;
+
+  const Expr *kernelNameExpr = callExpr->getArg(1)->IgnoreCasts();
+  const clang::StringLiteral *kernelName =
+      dyn_cast<clang::StringLiteral>(kernelNameExpr);
+  if (!kernelName) {
+    llvm::errs() << sOpenHipify << sErr << "kernel function name at location: "
+                 << kernelNameExpr->getExprLoc().printToString(SM)
+                 << " cannot be parsed.";
+    return false;
+  }
+
+  std::string kernelStr(kernelName->getString());
+  // TODO: involve tracking with cl_program to resolve ambiguity if two kernels
+  // have the same name in different files
+
+  m_kernelTracker.InsertName(kernelDecl, kernelStr);
   return true;
 }
 

@@ -52,7 +52,8 @@ enum class HostFuncs {
   clCreateBuffer,
   clEnqueueWriteBuffer,
   clSetKernelArg,
-  clEnqueueNDRangeKernel
+  clEnqueueNDRangeKernel,
+  clCreateKernel
 };
 
 // Memory function calls
@@ -64,14 +65,17 @@ const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer,
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
 const std::string CL_ENQUEUE_NDRANGE_BUFFER = "clEnqueueNDRangeKernel";
+const std::string CL_CREATE_KERNEL = "clCreateKernel";
 const std::set<HostFuncs> HOST_KERNEL_FUNCS{HostFuncs::clSetKernelArg,
-                                            HostFuncs::clEnqueueNDRangeKernel};
+                                            HostFuncs::clEnqueueNDRangeKernel,
+                                            HostFuncs::clCreateKernel};
 
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
     {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer},
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
+    {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
 };
 
 } // namespace OpenCL
