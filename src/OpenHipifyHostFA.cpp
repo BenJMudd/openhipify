@@ -19,7 +19,177 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return m_finder->newASTConsumer();
 }
 
-void OpenHipifyHostFA::EndSourceFileAction() {}
+void OpenHipifyHostFA::EndSourceFileAction() {
+  const SourceManager &SM = getCompilerInstance().getSourceManager();
+  ASTContext &astCtx = getCompilerInstance().getASTContext();
+  m_kernelTracker.Finalise(SM);
+
+  auto ArgToString = [&](const CallExpr *callExpr,
+                         size_t argIdx) -> std::string {
+    const Expr *expr = callExpr->getArg(argIdx);
+    CharSourceRange exprRng =
+        CharSourceRange::getTokenRange(expr->getSourceRange());
+    return std::string(
+        Lexer::getSourceText(exprRng, SM, LangOptions(), nullptr));
+  };
+
+  for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
+    // args are indexed in
+    std::vector<std::string> args;
+    std::vector<bool> argsUse;
+    args.resize(kInfo.args.size());
+    argsUse.resize(kInfo.args.size());
+    std::fill(argsUse.begin(), argsUse.end(), false);
+
+    size_t numArgs = 0;
+
+    // Set after the first launch command has been processed
+    bool argsFinalised = false;
+
+    auto argIter = kInfo.args.begin();
+    auto launchIter = kInfo.launches.begin();
+    while (argIter != kInfo.args.end() && launchIter != kInfo.launches.end()) {
+      const CallExpr *setArgExpr = *argIter;
+      const CallExpr *launchKernelExpr = *launchIter;
+      unsigned argPos = SM.getFileOffset(setArgExpr->getBeginLoc());
+      unsigned launchPos = SM.getFileOffset(launchKernelExpr->getBeginLoc());
+      if (argPos < launchPos) {
+        // Handle setting argument case
+        // Extract arg number
+        const Expr *argPosExpr = setArgExpr->getArg(1);
+        Expr::EvalResult argPosEval;
+        if (!argPosExpr->EvaluateAsInt(argPosEval, astCtx)) {
+          llvm::errs()
+              << sOpenHipify << sErr
+              << "Unable to parse kernel argument position at position: "
+              << argPosExpr->getExprLoc().printToString(SM);
+          argIter++;
+          continue;
+        }
+
+        uint64_t argPos = argPosEval.Val.getInt().getExtValue();
+
+        // Extract text for kernel argument
+        std::string kernelArgStr = ArgToString(setArgExpr, 3);
+
+        // Track
+        if (argPos > args.size()) {
+          // Extract text for whole of kernel
+          CharSourceRange setKArgStr =
+              CharSourceRange::getTokenRange(setArgExpr->getSourceRange());
+          std::string setKernelArgStr(
+              Lexer::getSourceText(setKArgStr, SM, LangOptions(), nullptr));
+          llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
+                       << setKernelArgStr << "\' at location: "
+                       << setArgExpr->getExprLoc().printToString(SM)
+                       << " references argument number: " << argPos
+                       << " where the kernel contains at maximum only "
+                       << args.size() << " argument(s).";
+          argIter++;
+          continue;
+        }
+
+        args[argPos] = kernelArgStr;
+        argsUse[argPos] = true;
+        if (argPos + 1 > numArgs) {
+          numArgs = argPos + 1;
+        }
+
+        // Remove expression
+        SourceLocation setArgExprStart = setArgExpr->getBeginLoc();
+        // Lex for a semi colon to end the expression
+        const char *startBuf = SM.getCharacterData(setArgExpr->getEndLoc());
+        const char *fileEndBuf =
+            SM.getCharacterData(SM.getLocForEndOfFile(SM.getMainFileID()));
+        Lexer lex(setArgExpr->getEndLoc(), clang::LangOptions(), startBuf,
+                  startBuf, fileEndBuf);
+
+        clang::Token tok;
+        lex.LexFromRawLexer(tok);
+        while (tok.isNot(clang::tok::semi)) {
+          lex.LexFromRawLexer(tok);
+        }
+
+        SourceLocation setArgExprEnd = tok.getLocation().getLocWithOffset(1);
+
+        CharSourceRange argExprChrRng =
+            CharSourceRange::getCharRange(setArgExprStart, setArgExprEnd);
+        ct::Replacement argExprRepl(SM, argExprChrRng, "");
+        llvm::consumeError(m_replacements.add(argExprRepl));
+
+        argIter++;
+      } else {
+        if (!argsFinalised) {
+          auto EnsureArguments = [&]() -> bool {
+            for (size_t i = 0; i < numArgs; ++i) {
+              if (!argsUse[i]) {
+                // Extract text for kernel launch
+                CharSourceRange kLaunchRng = CharSourceRange::getTokenRange(
+                    launchKernelExpr->getSourceRange());
+                std::string kLaunchStr(Lexer::getSourceText(
+                    kLaunchRng, SM, LangOptions(), nullptr));
+                llvm::errs()
+                    << sOpenHipify << sErr << "Kernel launch: " << kLaunchStr
+                    << " at position: "
+                    << launchKernelExpr->getBeginLoc().printToString(SM)
+                    << " accepts " << numArgs
+                    << " arguments, but argument at index " << i
+                    << " has not been set."
+                    << "\n";
+                return false;
+              }
+            }
+
+            return true;
+          };
+
+          if (!EnsureArguments()) {
+            launchIter++;
+            continue;
+          }
+
+          args.resize(numArgs);
+          argsFinalised = true;
+        }
+
+        // Handle launching kernel case
+        // Extract arg 4,5 for dimensions
+        std::string numBlocksStr = ArgToString(launchKernelExpr, 4);
+        std::string blockSizeStr = ArgToString(launchKernelExpr, 5);
+
+        // Replace function name with hip equivalent
+        SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
+        ct::Replacement nameReplacement(
+            SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
+            HIP::LAUNCHKERNELGGL);
+        llvm::consumeError(m_replacements.add(nameReplacement));
+
+        // Construct new args
+        std::string launchKernelArgs;
+        llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
+        launchKernelArgsStr << kInfo.funcName << ","
+                            << "dim3(*(" << numBlocksStr << ")),dim3(*("
+                            << blockSizeStr << ")),0,0";
+
+        // Append extracted args
+        for (const std::string &definedArg : args) {
+          launchKernelArgsStr << ",*(" << definedArg << ")";
+        }
+
+        // remove args, and replace
+        SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
+        SourceLocation argEnd = launchKernelExpr->getEndLoc();
+        CharSourceRange argRng =
+            CharSourceRange::getCharRange(argStart, argEnd);
+        ct::Replacement argsRepl(SM, argRng, launchKernelArgsStr.str());
+        llvm::consumeError(m_replacements.add(argsRepl));
+        launchIter++;
+      }
+    }
+
+    // TODO: Handle dangling launches
+  }
+}
 
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
@@ -278,13 +448,14 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
   if (!kernelName) {
     llvm::errs() << sOpenHipify << sErr << "kernel function name at location: "
                  << kernelNameExpr->getExprLoc().printToString(SM)
-                 << " cannot be parsed.";
+                 << " cannot be parsed."
+                 << "\n";
     return false;
   }
 
   std::string kernelStr(kernelName->getString());
-  // TODO: involve tracking with cl_program to resolve ambiguity if two kernels
-  // have the same name in different files
+  // TODO: involve tracking with cl_program to resolve ambiguity if two
+  // kernels have the same name in different files
 
   m_kernelTracker.InsertName(kernelDecl, kernelStr);
   return true;
@@ -301,7 +472,8 @@ bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
     llvm::errs()
         << sOpenHipify << sErr
         << "kernel argument at: " << arg1->getExprLoc().printToString(SM)
-        << " is not a variable reference. This is currently unsupported.";
+        << " is not a variable reference. This is currently unsupported."
+        << "\n";
     return false;
   }
 
@@ -309,7 +481,8 @@ bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
   if (!*kernelDecl) {
     llvm::errs() << sOpenHipify << sErr << "kernel reference at: "
                  << kernelRef->getBeginLoc().printToString(SM)
-                 << " is not a variable reference.";
+                 << " is not a variable reference."
+                 << "\n";
     return false;
   }
 
