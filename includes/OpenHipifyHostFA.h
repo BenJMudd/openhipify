@@ -40,6 +40,11 @@ private:
 
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
+  bool TrackKernelLaunch(const clang::CallExpr *callExpr);
+
+  bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
+                                size_t argIndex,
+                                const clang::ValueDecl **kernelDecl);
 
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 

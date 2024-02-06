@@ -227,16 +227,42 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clSetKernelArg: {
     return TrackKernelSetArg(callExpr);
   } break;
+  case OpenCL::HostFuncs::clEnqueueNDRangeKernel: {
+    return TrackKernelLaunch(callExpr);
+  }
   default: {
   } break;
   }
 
   return false;
 }
+
 bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
+  const ValueDecl *kernelDecl;
+  if (!ExtractKernelDeclFromArg(callExpr, 0, &kernelDecl)) {
+    return false;
+  }
+
+  m_kernelTracker.InsertArg(kernelDecl, callExpr);
+  return true;
+}
+
+bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
+  const ValueDecl *kernelDecl;
+  if (!ExtractKernelDeclFromArg(callExpr, 1, &kernelDecl)) {
+    return false;
+  }
+
+  m_kernelTracker.InsertLaunch(kernelDecl, callExpr);
+  return true;
+}
+
+bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
+    const clang::CallExpr *callExpr, size_t argIndex,
+    const clang::ValueDecl **kernelDecl) {
   SourceManager &SM = getCompilerInstance().getSourceManager();
 
-  const Expr *arg1 = callExpr->getArg(0)->IgnoreCasts();
+  const Expr *arg1 = callExpr->getArg(argIndex)->IgnoreCasts();
   const DeclRefExpr *kernelRef = dyn_cast<DeclRefExpr>(arg1);
   if (!kernelRef) {
     llvm::errs()
@@ -246,15 +272,13 @@ bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
     return false;
   }
 
-  const ValueDecl *kernelDecl = kernelRef->getDecl();
-  if (!kernelDecl) {
+  *kernelDecl = kernelRef->getDecl();
+  if (!*kernelDecl) {
     llvm::errs() << sOpenHipify << sErr << "kernel reference at: "
                  << kernelRef->getBeginLoc().printToString(SM)
                  << " is not a variable reference.";
     return false;
   }
-
-  m_kernelTracker.InsertArg(kernelDecl, callExpr);
 
   return true;
 }

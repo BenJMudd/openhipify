@@ -5,8 +5,14 @@
 class KernelTracker {
 public:
   KernelTracker() {}
+
   void InsertArg(const clang::ValueDecl *kernelDecl,
                  const clang::CallExpr *callExpr);
+
+  void InsertLaunch(const clang::ValueDecl *kernelDecl,
+                    const clang::CallExpr *callExpr);
+
+  void Finalise();
 
 private:
   struct KernelInfo {
