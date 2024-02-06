@@ -4,14 +4,18 @@
 
 class KernelTracker {
 public:
+  KernelTracker() {}
+  void InsertArg(const clang::ValueDecl *kernelDecl,
+                 const clang::CallExpr *callExpr);
+
 private:
   struct KernelInfo {
-    using LocationInfoVector =
-        std::vector<std::pair<clang::SourceLocation, std::string>>;
+    using LocationInfoVec =
+        std::vector<std::pair<clang::SourceLocation, const clang::CallExpr *>>;
     std::string funcName;
-    LocationInfoVector args;
-    LocationInfoVector launches;
+    LocationInfoVec args;
+    LocationInfoVec launches;
   };
 
-  std::map<clang::DeclRefExpr *, KernelInfo> m_tracker;
+  std::map<const clang::ValueDecl *, KernelInfo> m_tracker;
 };

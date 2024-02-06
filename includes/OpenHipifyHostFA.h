@@ -1,5 +1,6 @@
 #pragma once
 
+#include "KernelTracking.h"
 #include "OpenClDefs.h"
 #include "OpenHipifyKernelFA.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -44,4 +45,5 @@ private:
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
+  KernelTracker m_kernelTracker;
 };

@@ -246,8 +246,15 @@ bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
     return false;
   }
 
-  llvm::errs() << sOpenHipify << "Found kernel ref: " << kernelRef->getDecl()
-               << "\n";
+  const ValueDecl *kernelDecl = kernelRef->getDecl();
+  if (!kernelDecl) {
+    llvm::errs() << sOpenHipify << sErr << "kernel reference at: "
+                 << kernelRef->getBeginLoc().printToString(SM)
+                 << " is not a variable reference.";
+    return false;
+  }
+
+  m_kernelTracker.InsertArg(kernelDecl, callExpr);
 
   return true;
 }
