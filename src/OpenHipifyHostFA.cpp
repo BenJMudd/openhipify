@@ -19,6 +19,8 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return m_finder->newASTConsumer();
 }
 
+void OpenHipifyHostFA::EndSourceFileAction() {}
+
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
     return;
@@ -46,7 +48,7 @@ bool OpenHipifyHostFA::FunctionCall(
     HandleMemoryFunctionCall(callExpr, *iter);
   }
 
-  auto iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
+  iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
   if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
     // Kernel related function found
     HandleKernelFunctionCall(callExpr, *iter);
@@ -225,11 +227,91 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
                                                 OpenCL::HostFuncs func) {
   switch (func) {
   case OpenCL::HostFuncs::clSetKernelArg: {
-    return ReplaceCreateBuffer(callExpr);
+    return TrackKernelSetArg(callExpr);
   } break;
+  case OpenCL::HostFuncs::clEnqueueNDRangeKernel: {
+    return TrackKernelLaunch(callExpr);
+  }
+  case OpenCL::HostFuncs::clCreateKernel: {
+    return TrackKernelCreate(callExpr);
+  }
   default: {
   } break;
   }
 
   return false;
+}
+
+bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
+  const ValueDecl *kernelDecl;
+  if (!ExtractKernelDeclFromArg(callExpr, 0, &kernelDecl)) {
+    return false;
+  }
+
+  m_kernelTracker.InsertArg(kernelDecl, callExpr);
+  return true;
+}
+
+bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
+  const ValueDecl *kernelDecl;
+  if (!ExtractKernelDeclFromArg(callExpr, 1, &kernelDecl)) {
+    return false;
+  }
+
+  m_kernelTracker.InsertLaunch(kernelDecl, callExpr);
+  return true;
+}
+
+bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
+  ASTContext &astCtx = getCompilerInstance().getASTContext();
+  SourceManager &SM = getCompilerInstance().getSourceManager();
+
+  auto callExprParIter = astCtx.getParents(*callExpr).begin();
+  // Grab kernel declaration
+  const VarDecl *kernelDecl = callExprParIter->get<VarDecl>();
+  if (!kernelDecl)
+    return false;
+
+  const Expr *kernelNameExpr = callExpr->getArg(1)->IgnoreCasts();
+  const clang::StringLiteral *kernelName =
+      dyn_cast<clang::StringLiteral>(kernelNameExpr);
+  if (!kernelName) {
+    llvm::errs() << sOpenHipify << sErr << "kernel function name at location: "
+                 << kernelNameExpr->getExprLoc().printToString(SM)
+                 << " cannot be parsed.";
+    return false;
+  }
+
+  std::string kernelStr(kernelName->getString());
+  // TODO: involve tracking with cl_program to resolve ambiguity if two kernels
+  // have the same name in different files
+
+  m_kernelTracker.InsertName(kernelDecl, kernelStr);
+  return true;
+}
+
+bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
+    const clang::CallExpr *callExpr, size_t argIndex,
+    const clang::ValueDecl **kernelDecl) {
+  SourceManager &SM = getCompilerInstance().getSourceManager();
+
+  const Expr *arg1 = callExpr->getArg(argIndex)->IgnoreCasts();
+  const DeclRefExpr *kernelRef = dyn_cast<DeclRefExpr>(arg1);
+  if (!kernelRef) {
+    llvm::errs()
+        << sOpenHipify << sErr
+        << "kernel argument at: " << arg1->getExprLoc().printToString(SM)
+        << " is not a variable reference. This is currently unsupported.";
+    return false;
+  }
+
+  *kernelDecl = kernelRef->getDecl();
+  if (!*kernelDecl) {
+    llvm::errs() << sOpenHipify << sErr << "kernel reference at: "
+                 << kernelRef->getBeginLoc().printToString(SM)
+                 << " is not a variable reference.";
+    return false;
+  }
+
+  return true;
 }

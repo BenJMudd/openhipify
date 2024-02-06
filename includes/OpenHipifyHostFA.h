@@ -1,5 +1,6 @@
 #pragma once
 
+#include "KernelTracking.h"
 #include "OpenClDefs.h"
 #include "OpenHipifyKernelFA.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -25,6 +26,7 @@ private:
 
   std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &CI, StringRef InFile) override;
+  void EndSourceFileAction() override;
 
   bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
 
@@ -38,9 +40,17 @@ private:
   bool ReplaceEnqueWriteBuffer(const clang::CallExpr *callExpr);
 
   // Kernel function call replacements
+  bool TrackKernelSetArg(const clang::CallExpr *callExpr);
+  bool TrackKernelLaunch(const clang::CallExpr *callExpr);
+  bool TrackKernelCreate(const clang::CallExpr *callExpr);
+
+  bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
+                                size_t argIndex,
+                                const clang::ValueDecl **kernelDecl);
 
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
+  KernelTracker m_kernelTracker;
 };
