@@ -8,3 +8,4 @@ const std::string sOpenHipifyGeneratedEnd =
 
 const std::string sOpenHipify = "[OpenHipify] ";
 const std::string sErr = "error: ";
+const std::string sWarn = "warning: ";

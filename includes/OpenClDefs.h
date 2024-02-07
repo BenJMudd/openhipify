@@ -49,6 +49,10 @@ const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
 const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 
 // Host
+// Types
+const std::string CL_MEM_UNDERLYING = "_cl_mem";
+
+// Functions
 enum class HostFuncs {
   clCreateBuffer,
   clEnqueueWriteBuffer,

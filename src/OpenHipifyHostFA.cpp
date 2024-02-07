@@ -28,11 +28,23 @@ void OpenHipifyHostFA::EndSourceFileAction() {
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
     // [..(arg expression string, has addr op stripped)]
-    std::vector<std::pair<std::string, bool>> args;
+    struct ArgInfo {
+      ArgInfo(std::string str, bool stripped, bool cast)
+          : argStr(str), isAddrOpStripped(stripped), toCast(cast) {}
+      ArgInfo() : isAddrOpStripped(false), toCast(false) {}
+
+      std::string argStr;
+      bool isAddrOpStripped;
+      bool toCast;
+    };
+
+    std::vector<ArgInfo> args;
     std::vector<bool> argsUse;
+    std::vector<bool> argTypesToCast;
     args.resize(kInfo.args.size());
     argsUse.resize(kInfo.args.size());
     std::fill(argsUse.begin(), argsUse.end(), false);
+    std::fill(argTypesToCast.begin(), argTypesToCast.end(), false);
 
     size_t numArgs = 0;
 
@@ -136,11 +148,32 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       launchKernelArgsStr << "0,0";
 
       // Append extracted args
-      for (const auto &[definedArg, isAddrStripped] : args) {
-        if (isAddrStripped) {
-          launchKernelArgsStr << "," << definedArg;
+      for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
+        launchKernelArgsStr << ",";
+        if (args[argIdx].toCast) {
+          auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
+          if (kFuncMapIter != m_kernelFuncMap.end()) {
+            std::string typeToCast = kFuncMapIter->second.argTypes[argIdx];
+            launchKernelArgsStr << "(" << typeToCast << ")";
+          } else {
+            llvm::errs() << sOpenHipify << sWarn
+                         << "Unable to generate cast for cl_mem argument \'"
+                         << args[argIdx].argStr
+                         << "\' used in kernel launch function at location: "
+                         << launchKernelExpr->getBeginLoc().printToString(*SM)
+                         << " due to not tracking the original kernel "
+                            "definition. Include the definition for kernel: \'"
+                         << kInfo.funcName
+                         << "\' in the "
+                            "compilation process to generate cast."
+                         << "\n";
+          }
+        }
+
+        if (args[argIdx].isAddrOpStripped) {
+          launchKernelArgsStr << args[argIdx].argStr;
         } else {
-          launchKernelArgsStr << ",*(" << definedArg << ")";
+          launchKernelArgsStr << "*(" << args[argIdx].argStr << ")";
         }
       }
 
@@ -179,24 +212,39 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Extract text for kernel argument
       const Expr *kernelArgExpr = setArgExpr->getArg(3);
 
+      bool toCast = false;
+      const IdentifierInfo *kernelArgTypeIdent =
+          kernelArgExpr->IgnoreCasts()->getType().getBaseTypeIdentifier();
+      if (kernelArgTypeIdent) {
+        // Extracted type, test if it is a cl_mem type.
+        // If so, we need to track this so we can cast the use of this to it's
+        // kernel type if available
+        std::string typeStr(kernelArgTypeIdent->getName());
+        if (typeStr == OpenCL::CL_MEM_UNDERLYING) {
+          // cl_mem type, track
+          toCast = true;
+        }
+      }
+
       // Test if & is used to describe arg
       bool isAddrStripped = false;
       std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
 
       // Track
-      if (argPos > args.size()) {
+      if (argPos >= args.size()) {
         // Extract text for whole of kernel
         std::string setKernelArgStr = ExprToStr(setArgExpr);
         llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
                      << setKernelArgStr << "\' at location: "
                      << setArgExpr->getExprLoc().printToString(*SM)
-                     << " references argument number: " << argPos
+                     << " references argument index: " << argPos
                      << " where the kernel contains at maximum only "
-                     << args.size() << " argument(s).";
+                     << args.size() << " argument(s)."
+                     << "\n";
         return;
       }
 
-      args[argPos] = std::make_pair(kernelArgStr, isAddrStripped);
+      args[argPos] = ArgInfo(kernelArgStr, isAddrStripped, toCast);
       argsUse[argPos] = true;
       if (argPos + 1 > numArgs) {
         numArgs = argPos + 1;
