@@ -170,8 +170,24 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   funcDeclStr += funcDeclStrRaw.substr(offset);
   funcDeclStr += ");";
 
+  std::vector<std::string> funcArgs;
+  for (ParmVarDecl *param : funcDecl.parameters()) {
+    std::string paramStr = param->getOriginalType().getAsString();
+    for (const std::string &openCLAddrSpaceStr :
+         OpenCL::AddrSpace::SPACES_SET) {
+      size_t addrSpaceIdx = paramStr.find(openCLAddrSpaceStr);
+      if (addrSpaceIdx != std::string::npos) {
+        paramStr.erase(addrSpaceIdx, openCLAddrSpaceStr.length());
+        break;
+      }
+    }
+    funcArgs.push_back(paramStr);
+    llvm::errs() << sOpenHipify << "Found param\n";
+  }
+  m_kernelFuncMap[funcDecl.getName().str()] = {funcDeclStr, fileName.str(),
+                                               funcArgs};
+
   // TODO: Handle error where there are 2 kernels of the same name
-  m_kernelFuncMap[funcDecl.getName().str()] = {funcDeclStr, fileName.str()};
 }
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,

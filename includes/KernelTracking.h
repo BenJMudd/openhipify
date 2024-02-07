@@ -7,8 +7,9 @@
 
 struct KernelDefinition {
   KernelDefinition() {}
-  KernelDefinition(std::string funcDef, std::string fName)
-      : functionDef(funcDef), fileName(fName) {}
+  KernelDefinition(std::string funcDef, std::string fName,
+                   std::vector<std::string> args)
+      : functionDef(funcDef), fileName(fName), argTypes(args) {}
   std::string functionDef;
   std::string fileName;
   std::vector<std::string> argTypes;
