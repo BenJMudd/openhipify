@@ -38,6 +38,70 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     // Set after the first launch command has been processed
     bool argsFinalised = false;
 
+    auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
+      if (!argsFinalised) {
+        auto EnsureArguments = [&]() -> bool {
+          for (size_t i = 0; i < numArgs; ++i) {
+            if (!argsUse[i]) {
+              // Extract text for kernel launch
+              std::string kLaunchStr = ExprToStr(launchKernelExpr);
+              llvm::errs() << sOpenHipify << sErr
+                           << "Kernel launch: " << kLaunchStr
+                           << " at position: "
+                           << launchKernelExpr->getBeginLoc().printToString(*SM)
+                           << " accepts " << numArgs
+                           << " arguments, but argument at index " << i
+                           << " has not been set."
+                           << "\n";
+              return false;
+            }
+          }
+
+          return true;
+        };
+
+        if (!EnsureArguments()) {
+          return;
+        }
+
+        args.resize(numArgs);
+        argsFinalised = true;
+      }
+
+      // Handle launching kernel case
+      // Extract arg 4,5 for dimensions
+      const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
+      const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
+      std::string numBlocksStr = ExprToStr(numBlocksExpr);
+      std::string blockSizeStr = ExprToStr(blockSizeExpr);
+
+      // Replace function name with hip equivalent
+      SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
+      ct::Replacement nameReplacement(
+          *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
+          HIP::LAUNCHKERNELGGL);
+      llvm::consumeError(m_replacements.add(nameReplacement));
+
+      // Construct new args
+      std::string launchKernelArgs;
+      llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
+      launchKernelArgsStr << kInfo.funcName << ","
+                          << "dim3(*(" << numBlocksStr << ")),dim3(*("
+                          << blockSizeStr << ")),0,0";
+
+      // Append extracted args
+      for (const std::string &definedArg : args) {
+        launchKernelArgsStr << ",*(" << definedArg << ")";
+      }
+
+      // remove args, and replace
+      SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
+      SourceLocation argEnd = launchKernelExpr->getEndLoc();
+      CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+      ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
+      llvm::consumeError(m_replacements.add(argsRepl));
+    };
+
     auto argIter = kInfo.args.begin();
     auto launchIter = kInfo.launches.begin();
     while (argIter != kInfo.args.end() && launchIter != kInfo.launches.end()) {
@@ -100,74 +164,14 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
         argIter++;
       } else {
-        if (!argsFinalised) {
-          auto EnsureArguments = [&]() -> bool {
-            for (size_t i = 0; i < numArgs; ++i) {
-              if (!argsUse[i]) {
-                // Extract text for kernel launch
-                std::string kLaunchStr = ExprToStr(launchKernelExpr);
-                llvm::errs()
-                    << sOpenHipify << sErr << "Kernel launch: " << kLaunchStr
-                    << " at position: "
-                    << launchKernelExpr->getBeginLoc().printToString(*SM)
-                    << " accepts " << numArgs
-                    << " arguments, but argument at index " << i
-                    << " has not been set."
-                    << "\n";
-                return false;
-              }
-            }
-
-            return true;
-          };
-
-          if (!EnsureArguments()) {
-            launchIter++;
-            continue;
-          }
-
-          args.resize(numArgs);
-          argsFinalised = true;
-        }
-
-        // Handle launching kernel case
-        // Extract arg 4,5 for dimensions
-        const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
-        const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-        std::string numBlocksStr = ExprToStr(numBlocksExpr);
-        std::string blockSizeStr = ExprToStr(blockSizeExpr);
-
-        // Replace function name with hip equivalent
-        SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
-        ct::Replacement nameReplacement(
-            *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
-            HIP::LAUNCHKERNELGGL);
-        llvm::consumeError(m_replacements.add(nameReplacement));
-
-        // Construct new args
-        std::string launchKernelArgs;
-        llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
-        launchKernelArgsStr << kInfo.funcName << ","
-                            << "dim3(*(" << numBlocksStr << ")),dim3(*("
-                            << blockSizeStr << ")),0,0";
-
-        // Append extracted args
-        for (const std::string &definedArg : args) {
-          launchKernelArgsStr << ",*(" << definedArg << ")";
-        }
-
-        // remove args, and replace
-        SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
-        SourceLocation argEnd = launchKernelExpr->getEndLoc();
-        CharSourceRange argRng =
-            CharSourceRange::getCharRange(argStart, argEnd);
-        ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
-        llvm::consumeError(m_replacements.add(argsRepl));
+        HandlLaunchExpr(launchKernelExpr);
         launchIter++;
       }
     }
-
-    // TODO: Handle dangling launches
+    // Handle dangling launches
+    for (; launchIter != kInfo.launches.end(); launchIter++) {
+      HandlLaunchExpr(*launchIter);
+    }
   }
 }
 
