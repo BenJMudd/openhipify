@@ -163,6 +163,18 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       uint64_t argPos = argPosEval.Val.getInt().getExtValue();
+      if (argsFinalised && argPos >= numArgs) {
+        std::string setKernelArgStr = ExprToStr(setArgExpr);
+        llvm::errs()
+            << sOpenHipify << sErr
+            << "Kernel argument call: " << setKernelArgStr
+            << " at position: " << setArgExpr->getExprLoc().printToString(*SM)
+            << " references argument at index " << argPos
+            << " while the maximum number of arguments for this kernel is "
+            << numArgs << "."
+            << "\n";
+        return;
+      }
 
       // Extract text for kernel argument
       const Expr *kernelArgExpr = setArgExpr->getArg(3);
