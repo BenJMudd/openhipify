@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HIPDefs.h"
+#include "KernelTracking.h"
 #include "OpenClDefs.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/FrontendAction.h"
@@ -15,12 +16,8 @@ class OpenHipifyKernelFA : public clang::ASTFrontendAction,
   using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
 
 public:
-  // Kernel function name -> (function definition, file name)
-  using KernelFuncMap =
-      std::map<std::string, std::pair<std::string, std::string>>;
-
   explicit OpenHipifyKernelFA(ct::Replacements &replacements,
-                              KernelFuncMap &kFuncMap)
+                              std::map<std::string, KernelDefinition> &kFuncMap)
       : clang::ASTFrontendAction(), m_kernelFuncMap(kFuncMap),
         m_replacements(replacements) {}
 
@@ -49,7 +46,7 @@ private:
                       const ASTMatch::MatchFinder::MatchResult &res);
 
   std::set<HIP::AUX_FUNC_ID> m_auxFunctions;
-  KernelFuncMap &m_kernelFuncMap;
+  std::map<std::string, KernelDefinition> &m_kernelFuncMap;
 
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;

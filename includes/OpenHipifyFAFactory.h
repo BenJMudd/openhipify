@@ -10,8 +10,9 @@ namespace ct = clang::tooling;
 template <typename T>
 class OpenHipifyFAFactory : public ct::FrontendActionFactory {
 public:
-  explicit OpenHipifyFAFactory(ct::Replacements &replacements,
-                               OpenHipifyKernelFA::KernelFuncMap &kFuncMap)
+  explicit OpenHipifyFAFactory(
+      ct::Replacements &replacements,
+      std::map<std::string, KernelDefinition> &kFuncMap)
       : ct::FrontendActionFactory(), m_replacements(replacements),
         m_kernelFuncMap(kFuncMap) {}
 
@@ -21,5 +22,5 @@ public:
 
 private:
   ct::Replacements &m_replacements;
-  OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
+  std::map<std::string, KernelDefinition> &m_kernelFuncMap;
 };

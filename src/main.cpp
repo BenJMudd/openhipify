@@ -1,3 +1,4 @@
+#include "KernelTracking.h"
 #include "OpenHipifyFAFactory.h"
 #include "OpenHipifyHostFA.h"
 #include "OpenHipifyKernelFA.h"
@@ -50,7 +51,8 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
 
 template <class FRONTEND_ACTION>
 void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
-                 OpenHipifyKernelFA::KernelFuncMap &kFuncMap, bool isKernel) {
+                 std::map<std::string, KernelDefinition> &kFuncMap,
+                 bool isKernel) {
   std::error_code err;
 
   // generate a temporary file to work on in case of runtime
@@ -104,7 +106,7 @@ int main(int argc, const char **argv) {
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
 
-  OpenHipifyKernelFA::KernelFuncMap kernelFuncMap;
+  std::map<std::string, KernelDefinition> kernelFuncMap;
   for (const auto &kernelFile : kernelFiles) {
     ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser, kernelFuncMap, true);
   }
