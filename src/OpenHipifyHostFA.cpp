@@ -10,6 +10,9 @@ const StringRef B_CALL_EXPR = "callExpr";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  SM = &getCompilerInstance().getSourceManager();
+  AST = &getCompilerInstance().getASTContext();
+
   m_finder.reset(new ASTMatch::MatchFinder);
 
   // case matching
@@ -20,18 +23,7 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 }
 
 void OpenHipifyHostFA::EndSourceFileAction() {
-  const SourceManager &SM = getCompilerInstance().getSourceManager();
-  ASTContext &astCtx = getCompilerInstance().getASTContext();
-  m_kernelTracker.Finalise(SM);
-
-  auto ArgToString = [&](const CallExpr *callExpr,
-                         size_t argIdx) -> std::string {
-    const Expr *expr = callExpr->getArg(argIdx);
-    CharSourceRange exprRng =
-        CharSourceRange::getTokenRange(expr->getSourceRange());
-    return std::string(
-        Lexer::getSourceText(exprRng, SM, LangOptions(), nullptr));
-  };
+  m_kernelTracker.Finalise(*SM);
 
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
@@ -51,18 +43,18 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     while (argIter != kInfo.args.end() && launchIter != kInfo.launches.end()) {
       const CallExpr *setArgExpr = *argIter;
       const CallExpr *launchKernelExpr = *launchIter;
-      unsigned argPos = SM.getFileOffset(setArgExpr->getBeginLoc());
-      unsigned launchPos = SM.getFileOffset(launchKernelExpr->getBeginLoc());
+      unsigned argPos = SM->getFileOffset(setArgExpr->getBeginLoc());
+      unsigned launchPos = SM->getFileOffset(launchKernelExpr->getBeginLoc());
       if (argPos < launchPos) {
         // Handle setting argument case
         // Extract arg number
         const Expr *argPosExpr = setArgExpr->getArg(1);
         Expr::EvalResult argPosEval;
-        if (!argPosExpr->EvaluateAsInt(argPosEval, astCtx)) {
+        if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
           llvm::errs()
               << sOpenHipify << sErr
               << "Unable to parse kernel argument position at position: "
-              << argPosExpr->getExprLoc().printToString(SM);
+              << argPosExpr->getExprLoc().printToString(*SM);
           argIter++;
           continue;
         }
@@ -70,18 +62,16 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         uint64_t argPos = argPosEval.Val.getInt().getExtValue();
 
         // Extract text for kernel argument
-        std::string kernelArgStr = ArgToString(setArgExpr, 3);
+        const Expr *kernelArgExpr = setArgExpr->getArg(3);
+        std::string kernelArgStr = ExprToStr(kernelArgExpr);
 
         // Track
         if (argPos > args.size()) {
           // Extract text for whole of kernel
-          CharSourceRange setKArgStr =
-              CharSourceRange::getTokenRange(setArgExpr->getSourceRange());
-          std::string setKernelArgStr(
-              Lexer::getSourceText(setKArgStr, SM, LangOptions(), nullptr));
+          std::string setKernelArgStr = ExprToStr(setArgExpr);
           llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
                        << setKernelArgStr << "\' at location: "
-                       << setArgExpr->getExprLoc().printToString(SM)
+                       << setArgExpr->getExprLoc().printToString(*SM)
                        << " references argument number: " << argPos
                        << " where the kernel contains at maximum only "
                        << args.size() << " argument(s).";
@@ -97,24 +87,15 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
         // Remove expression
         SourceLocation setArgExprStart = setArgExpr->getBeginLoc();
+
         // Lex for a semi colon to end the expression
-        const char *startBuf = SM.getCharacterData(setArgExpr->getEndLoc());
-        const char *fileEndBuf =
-            SM.getCharacterData(SM.getLocForEndOfFile(SM.getMainFileID()));
-        Lexer lex(setArgExpr->getEndLoc(), clang::LangOptions(), startBuf,
-                  startBuf, fileEndBuf);
-
-        clang::Token tok;
-        lex.LexFromRawLexer(tok);
-        while (tok.isNot(clang::tok::semi)) {
-          lex.LexFromRawLexer(tok);
-        }
-
-        SourceLocation setArgExprEnd = tok.getLocation().getLocWithOffset(1);
+        SourceLocation setArgExprEnd =
+            LexForTokenLocation(setArgExpr->getEndLoc(), clang::tok::semi)
+                .getLocWithOffset(1);
 
         CharSourceRange argExprChrRng =
             CharSourceRange::getCharRange(setArgExprStart, setArgExprEnd);
-        ct::Replacement argExprRepl(SM, argExprChrRng, "");
+        ct::Replacement argExprRepl(*SM, argExprChrRng, "");
         llvm::consumeError(m_replacements.add(argExprRepl));
 
         argIter++;
@@ -124,14 +105,11 @@ void OpenHipifyHostFA::EndSourceFileAction() {
             for (size_t i = 0; i < numArgs; ++i) {
               if (!argsUse[i]) {
                 // Extract text for kernel launch
-                CharSourceRange kLaunchRng = CharSourceRange::getTokenRange(
-                    launchKernelExpr->getSourceRange());
-                std::string kLaunchStr(Lexer::getSourceText(
-                    kLaunchRng, SM, LangOptions(), nullptr));
+                std::string kLaunchStr = ExprToStr(launchKernelExpr);
                 llvm::errs()
                     << sOpenHipify << sErr << "Kernel launch: " << kLaunchStr
                     << " at position: "
-                    << launchKernelExpr->getBeginLoc().printToString(SM)
+                    << launchKernelExpr->getBeginLoc().printToString(*SM)
                     << " accepts " << numArgs
                     << " arguments, but argument at index " << i
                     << " has not been set."
@@ -154,13 +132,15 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
         // Handle launching kernel case
         // Extract arg 4,5 for dimensions
-        std::string numBlocksStr = ArgToString(launchKernelExpr, 4);
-        std::string blockSizeStr = ArgToString(launchKernelExpr, 5);
+        const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
+        const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
+        std::string numBlocksStr = ExprToStr(numBlocksExpr);
+        std::string blockSizeStr = ExprToStr(blockSizeExpr);
 
         // Replace function name with hip equivalent
         SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
         ct::Replacement nameReplacement(
-            SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
+            *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
             HIP::LAUNCHKERNELGGL);
         llvm::consumeError(m_replacements.add(nameReplacement));
 
@@ -181,7 +161,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         SourceLocation argEnd = launchKernelExpr->getEndLoc();
         CharSourceRange argRng =
             CharSourceRange::getCharRange(argStart, argEnd);
-        ct::Replacement argsRepl(SM, argRng, launchKernelArgsStr.str());
+        ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
         llvm::consumeError(m_replacements.add(argsRepl));
         launchIter++;
       }
@@ -229,7 +209,6 @@ bool OpenHipifyHostFA::FunctionCall(
 
 bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
                                                 OpenCL::HostFuncs func) {
-
   switch (func) {
   case OpenCL::HostFuncs::clCreateBuffer: {
     return ReplaceCreateBuffer(callExpr);
@@ -245,10 +224,7 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
-  ASTContext &astCtx = getCompilerInstance().getASTContext();
-  SourceManager &SM = getCompilerInstance().getSourceManager();
-
-  auto callExprParIter = astCtx.getParents(*callExpr).begin();
+  const auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab parent of callExpr
   // TODO: Support other cases than just vardecl, e.g. binary expression
   const VarDecl *varDecl;
@@ -259,7 +235,7 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   // Renaming the type from cl_mem -> void*
   SourceLocation typeBeginLoc = varDecl->getBeginLoc();
   std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
-  ct::Replacement typeReplacement(SM, typeBeginLoc, typeStr.length(),
+  ct::Replacement typeReplacement(*SM, typeBeginLoc, typeStr.length(),
                                   HIP::VOID_PTR);
   llvm::consumeError(m_replacements.add(typeReplacement));
 
@@ -274,23 +250,14 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
 
   // Finding SourceLocation for: cl_mem mem = clCreateBuffer(...);
   //                                        ^
-  const char *varDeclStartBuf = SM.getCharacterData(varDecl->getBeginLoc());
-  const char *fileEndBuf =
-      SM.getCharacterData(SM.getLocForEndOfFile(SM.getMainFileID()));
-  Lexer lex(typeBeginLoc, clang::LangOptions(), varDeclStartBuf,
-            varDeclStartBuf, fileEndBuf);
-
-  clang::Token tok;
-  lex.LexFromRawLexer(tok);
-  while (tok.isNot(clang::tok::equal)) {
-    lex.LexFromRawLexer(tok);
-  }
+  SourceLocation equalLoc =
+      LexForTokenLocation(varDecl->getBeginLoc(), clang::tok::equal);
 
   // Range created from equal token and start of function call
   // cl_mem mem = clCreateBuffer(...);
   //            ^^^
-  CharSourceRange binaryExprRng = CharSourceRange::getTokenRange(
-      tok.getLocation(), callExpr->getBeginLoc());
+  CharSourceRange binaryExprRng =
+      CharSourceRange::getTokenRange(equalLoc, callExpr->getBeginLoc());
 
   std::string splitExpr;
   llvm::raw_string_ostream splitExprStr(splitExpr);
@@ -299,17 +266,13 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   // Final replacement for splitting we change the function call as well
   // cl_mem mem = clCreateBuffer(...);
   // cl_mem mem ; hipMalloc(...);
-  ct::Replacement binaryExprRepl(SM, binaryExprRng, splitExprStr.str());
+  ct::Replacement binaryExprRepl(*SM, binaryExprRng, splitExprStr.str());
   llvm::consumeError(m_replacements.add(binaryExprRepl));
 
   // Argument replacement
   // size of buffer argument extracted
   const Expr *bufSize = callExpr->getArg(2);
-
-  CharSourceRange bufSizeSrcRng =
-      CharSourceRange::getTokenRange(bufSize->getSourceRange());
-  std::string bufSizeExprStr(
-      Lexer::getSourceText(bufSizeSrcRng, SM, LangOptions(), nullptr));
+  std::string bufSizeExprStr = ExprToStr(bufSize);
 
   // Name of mem variable extracted
   std::string varName = varDecl->getNameAsString();
@@ -323,7 +286,7 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   llvm::raw_string_ostream newArgsStr(newArgs);
   newArgsStr << HIP::VOID_PTR_PTR_CAST << "&" << varName << ","
              << bufSizeExprStr;
-  ct::Replacement argsRepl(SM, argRng, newArgsStr.str());
+  ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
   return true;
@@ -331,14 +294,11 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
 
 // TODO: Handle error return for clCreateWriteBuffer
 bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
-  ASTContext &astCtx = getCompilerInstance().getASTContext();
-  SourceManager &SM = getCompilerInstance().getSourceManager();
-
   // Replace function name with memcpy
   SourceLocation funcNameLoc = callExpr->getBeginLoc();
   std::string funcNameStr =
       callExpr->getDirectCallee()->getNameInfo().getName().getAsString();
-  ct::Replacement nameReplacement(SM, funcNameLoc, funcNameStr.length(),
+  ct::Replacement nameReplacement(*SM, funcNameLoc, funcNameStr.length(),
                                   HIP::MEMCPY);
   llvm::consumeError(m_replacements.add(nameReplacement));
 
@@ -349,19 +309,15 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   const Expr *argSize = callExpr->getArg(4);
 
   // Extract string for src, dst, size
-  auto ExprToStr = [&](const Expr &expr) -> std::string {
-    CharSourceRange rng = CharSourceRange::getTokenRange(expr.getSourceRange());
-    return std::string(Lexer::getSourceText(rng, SM, LangOptions(), nullptr));
-  };
-  std::string argDstStr = ExprToStr(*argDst);
-  std::string argSrcStr = ExprToStr(*argSrc);
-  std::string argSizeStr = ExprToStr(*argSize);
+  std::string argDstStr = ExprToStr(argDst);
+  std::string argSrcStr = ExprToStr(argSrc);
+  std::string argSizeStr = ExprToStr(argSize);
 
   // Evaluate offset
   std::string argDstWithOff;
   llvm::raw_string_ostream argDstWithOffStr(argDstWithOff);
   Expr::EvalResult offsetEval;
-  if (argOffset->EvaluateAsInt(offsetEval, astCtx)) {
+  if (argOffset->EvaluateAsInt(offsetEval, *AST)) {
     APSInt offset = offsetEval.Val.getInt();
     if (offset == 0) {
       // Offset is set to 0, no need to modify dest buffer
@@ -373,7 +329,7 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   } else {
     // Offset is not evaluateable, we must append the dest pointer
     // with the offset
-    std::string argOffsetStr = ExprToStr(*argOffset);
+    std::string argOffsetStr = ExprToStr(argOffset);
     argDstWithOffStr << "(" << argDstStr << ")+(" << argOffsetStr << ")";
   }
 
@@ -387,7 +343,7 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
   SourceLocation argEnd = callExpr->getEndLoc();
   CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
-  ct::Replacement argsRepl(SM, argRng, hipMemcpyArgsStr.str());
+  ct::Replacement argsRepl(*SM, argRng, hipMemcpyArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
   return true;
@@ -433,10 +389,7 @@ bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
 }
 
 bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
-  ASTContext &astCtx = getCompilerInstance().getASTContext();
-  SourceManager &SM = getCompilerInstance().getSourceManager();
-
-  auto callExprParIter = astCtx.getParents(*callExpr).begin();
+  auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab kernel declaration
   const VarDecl *kernelDecl = callExprParIter->get<VarDecl>();
   if (!kernelDecl)
@@ -447,7 +400,7 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
       dyn_cast<clang::StringLiteral>(kernelNameExpr);
   if (!kernelName) {
     llvm::errs() << sOpenHipify << sErr << "kernel function name at location: "
-                 << kernelNameExpr->getExprLoc().printToString(SM)
+                 << kernelNameExpr->getExprLoc().printToString(*SM)
                  << " cannot be parsed."
                  << "\n";
     return false;
@@ -464,14 +417,12 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
 bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
     const clang::CallExpr *callExpr, size_t argIndex,
     const clang::ValueDecl **kernelDecl) {
-  SourceManager &SM = getCompilerInstance().getSourceManager();
-
   const Expr *arg1 = callExpr->getArg(argIndex)->IgnoreCasts();
   const DeclRefExpr *kernelRef = dyn_cast<DeclRefExpr>(arg1);
   if (!kernelRef) {
     llvm::errs()
         << sOpenHipify << sErr
-        << "kernel argument at: " << arg1->getExprLoc().printToString(SM)
+        << "kernel argument at: " << arg1->getExprLoc().printToString(*SM)
         << " is not a variable reference. This is currently unsupported."
         << "\n";
     return false;
@@ -480,11 +431,34 @@ bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
   *kernelDecl = kernelRef->getDecl();
   if (!*kernelDecl) {
     llvm::errs() << sOpenHipify << sErr << "kernel reference at: "
-                 << kernelRef->getBeginLoc().printToString(SM)
+                 << kernelRef->getBeginLoc().printToString(*SM)
                  << " is not a variable reference."
                  << "\n";
     return false;
   }
 
   return true;
+}
+
+std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
+  CharSourceRange rng = CharSourceRange::getTokenRange(expr->getSourceRange());
+  return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+}
+
+clang::SourceLocation
+OpenHipifyHostFA::LexForTokenLocation(clang::SourceLocation beginLoc,
+                                      clang::tok::TokenKind tokType) {
+
+  const char *startBuf = SM->getCharacterData(beginLoc);
+  const char *fileEndBuf =
+      SM->getCharacterData(SM->getLocForEndOfFile(SM->getMainFileID()));
+  Lexer lex(beginLoc, clang::LangOptions(), startBuf, startBuf, fileEndBuf);
+
+  clang::Token tok;
+  lex.LexFromRawLexer(tok);
+  while (tok.isNot(tokType)) {
+    lex.LexFromRawLexer(tok);
+  }
+
+  return tok.getLocation();
 }

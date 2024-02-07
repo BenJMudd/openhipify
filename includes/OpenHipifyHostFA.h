@@ -4,6 +4,7 @@
 #include "OpenClDefs.h"
 #include "OpenHipifyKernelFA.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Core/Replacement.h"
 
@@ -48,9 +49,15 @@ private:
                                 size_t argIndex,
                                 const clang::ValueDecl **kernelDecl);
 
+  std::string ExprToStr(const clang::Expr *expr);
+  clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
+                                            clang::tok::TokenKind tokType);
+
   OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
 
-  MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
+  const clang::SourceManager *SM;
+  clang::ASTContext *AST;
+  MatchFinderPtr m_finder;
   KernelTracker m_kernelTracker;
 };
