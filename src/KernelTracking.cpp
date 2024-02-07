@@ -2,25 +2,25 @@
 
 using namespace clang;
 
-void KernelTracker::InsertArg(const ValueDecl *kernelDecl,
-                              const CallExpr *argExpr) {
+void KernelLaunchTracker::InsertArg(const ValueDecl *kernelDecl,
+                                    const CallExpr *argExpr) {
   KernelInfo &kernel = m_tracker[kernelDecl];
   kernel.args.emplace_back(argExpr);
 }
 
-void KernelTracker::InsertLaunch(const ValueDecl *kernelDecl,
-                                 const CallExpr *launchExpr) {
+void KernelLaunchTracker::InsertLaunch(const ValueDecl *kernelDecl,
+                                       const CallExpr *launchExpr) {
   KernelInfo &kernel = m_tracker[kernelDecl];
   kernel.launches.emplace_back(launchExpr);
 }
 
-void KernelTracker::InsertName(const ValueDecl *kernelDecl,
-                               std::string kernelName) {
+void KernelLaunchTracker::InsertName(const ValueDecl *kernelDecl,
+                                     std::string kernelName) {
   KernelInfo &kernel = m_tracker[kernelDecl];
   kernel.funcName = kernelName;
 }
 
-void KernelTracker::Finalise(const SourceManager &SM) {
+void KernelLaunchTracker::Finalise(const SourceManager &SM) {
   // Need to sort arg and launch lists in SourceLocationOrder
   // TODO: this is obviously an awful way to do this, maybe think of something
   // with a braincell

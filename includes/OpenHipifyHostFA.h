@@ -18,7 +18,7 @@ class OpenHipifyHostFA : public clang::ASTFrontendAction,
 
 public:
   explicit OpenHipifyHostFA(ct::Replacements &replacements,
-                            OpenHipifyKernelFA::KernelFuncMap &kFuncMap)
+                            std::map<std::string, KernelDefinition> &kFuncMap)
       : clang::ASTFrontendAction(), m_kernelFuncMap(kFuncMap),
         m_replacements(replacements) {}
 
@@ -53,11 +53,11 @@ private:
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
 
-  OpenHipifyKernelFA::KernelFuncMap &m_kernelFuncMap;
+  std::map<std::string, KernelDefinition> &m_kernelFuncMap;
 
   ct::Replacements &m_replacements;
   const clang::SourceManager *SM;
   clang::ASTContext *AST;
   MatchFinderPtr m_finder;
-  KernelTracker m_kernelTracker;
+  KernelLaunchTracker m_kernelTracker;
 };

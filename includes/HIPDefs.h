@@ -1,3 +1,5 @@
+#pragma once
+
 #include "OpenClDefs.h"
 #include <map>
 #include <string>
