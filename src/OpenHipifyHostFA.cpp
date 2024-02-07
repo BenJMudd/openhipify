@@ -27,7 +27,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
-    std::vector<std::string> args;
+    // [..(arg expression string, has addr op stripped)]
+    std::vector<std::pair<std::string, bool>> args;
     std::vector<bool> argsUse;
     args.resize(kInfo.args.size());
     argsUse.resize(kInfo.args.size());
@@ -49,6 +50,21 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       CharSourceRange exprRng = CharSourceRange::getCharRange(start, end);
       ct::Replacement exprRepl(*SM, exprRng, "");
       llvm::consumeError(m_replacements.add(exprRepl));
+    };
+
+    auto StripAddrOfOp = [&](const Expr *expr,
+                             bool &isAddrStripped) -> std::string {
+      // Test if & is used to describe arg
+      isAddrStripped = false;
+      const UnaryOperator *unaryOp =
+          dyn_cast<UnaryOperator>(expr->IgnoreCasts());
+      if (unaryOp && unaryOp->getOpcode() == UO_AddrOf) {
+        // Found & prepend
+        isAddrStripped = true;
+        return ExprToStr(unaryOp->getSubExpr());
+      } else {
+        return ExprToStr(expr);
+      }
     };
 
     auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
@@ -85,8 +101,12 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Extract arg 4,5 for dimensions
       const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
       const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-      std::string numBlocksStr = ExprToStr(numBlocksExpr);
-      std::string blockSizeStr = ExprToStr(blockSizeExpr);
+      bool isNumBlocksAddrStripped, isBlockSizeAddrStripped;
+
+      std::string numBlocksStr =
+          StripAddrOfOp(numBlocksExpr, isNumBlocksAddrStripped);
+      std::string blockSizeStr =
+          StripAddrOfOp(blockSizeExpr, isBlockSizeAddrStripped);
 
       // Replace function name with hip equivalent
       SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
@@ -99,12 +119,29 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       std::string launchKernelArgs;
       llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
       launchKernelArgsStr << kInfo.funcName << ","
-                          << "dim3(*(" << numBlocksStr << ")),dim3(*("
-                          << blockSizeStr << ")),0,0";
+                          << "dim3(";
+      if (isNumBlocksAddrStripped) {
+        launchKernelArgsStr << numBlocksStr << "),";
+      } else {
+        launchKernelArgsStr << "*(" << numBlocksStr << ")),";
+      }
+
+      launchKernelArgsStr << "dim3(";
+      if (isBlockSizeAddrStripped) {
+        launchKernelArgsStr << blockSizeStr << "),";
+      } else {
+        launchKernelArgsStr << "*(" << blockSizeStr << ")),";
+      }
+
+      launchKernelArgsStr << "0,0";
 
       // Append extracted args
-      for (const std::string &definedArg : args) {
-        launchKernelArgsStr << ",*(" << definedArg << ")";
+      for (const auto &[definedArg, isAddrStripped] : args) {
+        if (isAddrStripped) {
+          launchKernelArgsStr << "," << definedArg;
+        } else {
+          launchKernelArgsStr << ",*(" << definedArg << ")";
+        }
       }
 
       // remove args, and replace
@@ -114,6 +151,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
       llvm::consumeError(m_replacements.add(argsRepl));
     };
+
     auto HandleArgExpr = [&](const CallExpr *setArgExpr) { // Extract arg number
       const Expr *argPosExpr = setArgExpr->getArg(1);
       Expr::EvalResult argPosEval;
@@ -128,7 +166,10 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       // Extract text for kernel argument
       const Expr *kernelArgExpr = setArgExpr->getArg(3);
-      std::string kernelArgStr = ExprToStr(kernelArgExpr);
+
+      // Test if & is used to describe arg
+      bool isAddrStripped = false;
+      std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
 
       // Track
       if (argPos > args.size()) {
@@ -143,7 +184,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         return;
       }
 
-      args[argPos] = kernelArgStr;
+      args[argPos] = std::make_pair(kernelArgStr, isAddrStripped);
       argsUse[argPos] = true;
       if (argPos + 1 > numArgs) {
         numArgs = argPos + 1;
