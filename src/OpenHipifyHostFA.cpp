@@ -38,136 +38,156 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     // Set after the first launch command has been processed
     bool argsFinalised = false;
 
+    auto RemoveExprFromSrc = [&](const Expr *expr) {
+      SourceLocation start = expr->getBeginLoc();
+
+      // Lex for a semi colon to end the expression
+      SourceLocation end =
+          LexForTokenLocation(expr->getEndLoc(), clang::tok::semi)
+              .getLocWithOffset(1);
+
+      CharSourceRange exprRng = CharSourceRange::getCharRange(start, end);
+      ct::Replacement exprRepl(*SM, exprRng, "");
+      llvm::consumeError(m_replacements.add(exprRepl));
+    };
+
+    auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
+      if (!argsFinalised) {
+        auto EnsureArguments = [&]() -> bool {
+          for (size_t i = 0; i < numArgs; ++i) {
+            if (!argsUse[i]) {
+              // Extract text for kernel launch
+              std::string kLaunchStr = ExprToStr(launchKernelExpr);
+              llvm::errs() << sOpenHipify << sErr
+                           << "Kernel launch: " << kLaunchStr
+                           << " at position: "
+                           << launchKernelExpr->getBeginLoc().printToString(*SM)
+                           << " accepts " << numArgs
+                           << " arguments, but argument at index " << i
+                           << " has not been set."
+                           << "\n";
+              return false;
+            }
+          }
+
+          return true;
+        };
+
+        if (!EnsureArguments()) {
+          return;
+        }
+
+        args.resize(numArgs);
+        argsFinalised = true;
+      }
+
+      // Handle launching kernel case
+      // Extract arg 4,5 for dimensions
+      const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
+      const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
+      std::string numBlocksStr = ExprToStr(numBlocksExpr);
+      std::string blockSizeStr = ExprToStr(blockSizeExpr);
+
+      // Replace function name with hip equivalent
+      SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
+      ct::Replacement nameReplacement(
+          *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
+          HIP::LAUNCHKERNELGGL);
+      llvm::consumeError(m_replacements.add(nameReplacement));
+
+      // Construct new args
+      std::string launchKernelArgs;
+      llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
+      launchKernelArgsStr << kInfo.funcName << ","
+                          << "dim3(*(" << numBlocksStr << ")),dim3(*("
+                          << blockSizeStr << ")),0,0";
+
+      // Append extracted args
+      for (const std::string &definedArg : args) {
+        launchKernelArgsStr << ",*(" << definedArg << ")";
+      }
+
+      // remove args, and replace
+      SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
+      SourceLocation argEnd = launchKernelExpr->getEndLoc();
+      CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+      ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
+      llvm::consumeError(m_replacements.add(argsRepl));
+    };
+    auto HandleArgExpr = [&](const CallExpr *setArgExpr) { // Extract arg number
+      const Expr *argPosExpr = setArgExpr->getArg(1);
+      Expr::EvalResult argPosEval;
+      if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
+        llvm::errs() << sOpenHipify << sErr
+                     << "Unable to parse kernel argument position at position: "
+                     << argPosExpr->getExprLoc().printToString(*SM);
+        return;
+      }
+
+      uint64_t argPos = argPosEval.Val.getInt().getExtValue();
+
+      // Extract text for kernel argument
+      const Expr *kernelArgExpr = setArgExpr->getArg(3);
+      std::string kernelArgStr = ExprToStr(kernelArgExpr);
+
+      // Track
+      if (argPos > args.size()) {
+        // Extract text for whole of kernel
+        std::string setKernelArgStr = ExprToStr(setArgExpr);
+        llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
+                     << setKernelArgStr << "\' at location: "
+                     << setArgExpr->getExprLoc().printToString(*SM)
+                     << " references argument number: " << argPos
+                     << " where the kernel contains at maximum only "
+                     << args.size() << " argument(s).";
+        return;
+      }
+
+      args[argPos] = kernelArgStr;
+      argsUse[argPos] = true;
+      if (argPos + 1 > numArgs) {
+        numArgs = argPos + 1;
+      }
+
+      // Remove expression
+      RemoveExprFromSrc(setArgExpr);
+    };
+
     auto argIter = kInfo.args.begin();
     auto launchIter = kInfo.launches.begin();
-    while (argIter != kInfo.args.end() && launchIter != kInfo.launches.end()) {
+    while (1) {
+      bool isAllArgsProcessed = argIter == kInfo.args.end();
+      bool isAllLaunchesProcessed = launchIter == kInfo.launches.end();
+      if (isAllArgsProcessed && isAllLaunchesProcessed) {
+        break;
+      }
+
+      if (isAllArgsProcessed) {
+        // Handle dangling launches
+        HandlLaunchExpr(*launchIter);
+        launchIter++;
+        continue;
+      }
+
+      if (isAllLaunchesProcessed) {
+        // Handle dangling args, i.e. remove them from source
+        RemoveExprFromSrc(*argIter);
+        argIter++;
+        continue;
+      }
+
       const CallExpr *setArgExpr = *argIter;
       const CallExpr *launchKernelExpr = *launchIter;
       unsigned argPos = SM->getFileOffset(setArgExpr->getBeginLoc());
       unsigned launchPos = SM->getFileOffset(launchKernelExpr->getBeginLoc());
       if (argPos < launchPos) {
-        // Handle setting argument case
-        // Extract arg number
-        const Expr *argPosExpr = setArgExpr->getArg(1);
-        Expr::EvalResult argPosEval;
-        if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
-          llvm::errs()
-              << sOpenHipify << sErr
-              << "Unable to parse kernel argument position at position: "
-              << argPosExpr->getExprLoc().printToString(*SM);
-          argIter++;
-          continue;
-        }
-
-        uint64_t argPos = argPosEval.Val.getInt().getExtValue();
-
-        // Extract text for kernel argument
-        const Expr *kernelArgExpr = setArgExpr->getArg(3);
-        std::string kernelArgStr = ExprToStr(kernelArgExpr);
-
-        // Track
-        if (argPos > args.size()) {
-          // Extract text for whole of kernel
-          std::string setKernelArgStr = ExprToStr(setArgExpr);
-          llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
-                       << setKernelArgStr << "\' at location: "
-                       << setArgExpr->getExprLoc().printToString(*SM)
-                       << " references argument number: " << argPos
-                       << " where the kernel contains at maximum only "
-                       << args.size() << " argument(s).";
-          argIter++;
-          continue;
-        }
-
-        args[argPos] = kernelArgStr;
-        argsUse[argPos] = true;
-        if (argPos + 1 > numArgs) {
-          numArgs = argPos + 1;
-        }
-
-        // Remove expression
-        SourceLocation setArgExprStart = setArgExpr->getBeginLoc();
-
-        // Lex for a semi colon to end the expression
-        SourceLocation setArgExprEnd =
-            LexForTokenLocation(setArgExpr->getEndLoc(), clang::tok::semi)
-                .getLocWithOffset(1);
-
-        CharSourceRange argExprChrRng =
-            CharSourceRange::getCharRange(setArgExprStart, setArgExprEnd);
-        ct::Replacement argExprRepl(*SM, argExprChrRng, "");
-        llvm::consumeError(m_replacements.add(argExprRepl));
-
+        HandleArgExpr(setArgExpr);
         argIter++;
       } else {
-        if (!argsFinalised) {
-          auto EnsureArguments = [&]() -> bool {
-            for (size_t i = 0; i < numArgs; ++i) {
-              if (!argsUse[i]) {
-                // Extract text for kernel launch
-                std::string kLaunchStr = ExprToStr(launchKernelExpr);
-                llvm::errs()
-                    << sOpenHipify << sErr << "Kernel launch: " << kLaunchStr
-                    << " at position: "
-                    << launchKernelExpr->getBeginLoc().printToString(*SM)
-                    << " accepts " << numArgs
-                    << " arguments, but argument at index " << i
-                    << " has not been set."
-                    << "\n";
-                return false;
-              }
-            }
-
-            return true;
-          };
-
-          if (!EnsureArguments()) {
-            launchIter++;
-            continue;
-          }
-
-          args.resize(numArgs);
-          argsFinalised = true;
-        }
-
-        // Handle launching kernel case
-        // Extract arg 4,5 for dimensions
-        const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
-        const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-        std::string numBlocksStr = ExprToStr(numBlocksExpr);
-        std::string blockSizeStr = ExprToStr(blockSizeExpr);
-
-        // Replace function name with hip equivalent
-        SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
-        ct::Replacement nameReplacement(
-            *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
-            HIP::LAUNCHKERNELGGL);
-        llvm::consumeError(m_replacements.add(nameReplacement));
-
-        // Construct new args
-        std::string launchKernelArgs;
-        llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
-        launchKernelArgsStr << kInfo.funcName << ","
-                            << "dim3(*(" << numBlocksStr << ")),dim3(*("
-                            << blockSizeStr << ")),0,0";
-
-        // Append extracted args
-        for (const std::string &definedArg : args) {
-          launchKernelArgsStr << ",*(" << definedArg << ")";
-        }
-
-        // remove args, and replace
-        SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
-        SourceLocation argEnd = launchKernelExpr->getEndLoc();
-        CharSourceRange argRng =
-            CharSourceRange::getCharRange(argStart, argEnd);
-        ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
-        llvm::consumeError(m_replacements.add(argsRepl));
+        HandlLaunchExpr(launchKernelExpr);
         launchIter++;
       }
     }
-
-    // TODO: Handle dangling launches
   }
 }
 
