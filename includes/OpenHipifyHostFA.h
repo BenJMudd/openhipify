@@ -41,6 +41,7 @@ private:
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
+  bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
@@ -51,6 +52,7 @@ private:
                                 size_t argIndex,
                                 const clang::ValueDecl **kernelDecl);
 
+  void RewriteFuncName(const clang::CallExpr *callExpr, std::string newName);
   void RemoveDeclFromSource(const clang::Decl *decl);
   void RemoveExprFromSource(const clang::Expr *decl);
   void RemoveStmtRangeFromSource(clang::SourceRange rng);

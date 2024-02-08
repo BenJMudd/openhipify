@@ -61,6 +61,7 @@ enum class HostFuncs {
   clCreateBuffer,
   clEnqueueWriteBuffer,
   clEnqueueReadBuffer,
+  clReleaseMemObject,
   clSetKernelArg,
   clEnqueueNDRangeKernel,
   clCreateKernel,
@@ -81,9 +82,13 @@ enum class HostFuncs {
 const std::string CL_CREATE_BUFFER = "clCreateBuffer";
 const std::string CL_ENQUEUE_WRITE_BUFFER = "clEnqueueWriteBuffer";
 const std::string CL_ENQUEUE_READ_BUFFER = "clEnqueueReadBuffer";
-const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer,
-                                         HostFuncs::clEnqueueWriteBuffer,
-                                         HostFuncs::clEnqueueReadBuffer};
+const std::string CL_RELEASE_MEM_OBJECT = "clReleaseMemObject";
+const std::set<HostFuncs> HOST_MEM_FUNCS{
+    HostFuncs::clCreateBuffer,
+    HostFuncs::clEnqueueWriteBuffer,
+    HostFuncs::clEnqueueReadBuffer,
+    HostFuncs::clReleaseMemObject,
+};
 
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
@@ -122,6 +127,7 @@ const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
     {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer},
     {CL_ENQUEUE_READ_BUFFER, HostFuncs::clEnqueueReadBuffer},
+    {CL_RELEASE_MEM_OBJECT, HostFuncs::clReleaseMemObject},
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
     {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
