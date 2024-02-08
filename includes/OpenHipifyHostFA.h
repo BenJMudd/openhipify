@@ -40,7 +40,7 @@ private:
 
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
-  bool ReplaceEnqueWriteBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
 
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);

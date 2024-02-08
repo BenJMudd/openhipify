@@ -60,6 +60,7 @@ const std::set<std::string> CL_TYPES{CL_PROGRAM, CL_PLATFORM_ID, CL_DEVICE_ID};
 enum class HostFuncs {
   clCreateBuffer,
   clEnqueueWriteBuffer,
+  clEnqueueReadBuffer,
   clSetKernelArg,
   clEnqueueNDRangeKernel,
   clCreateKernel,
@@ -79,8 +80,10 @@ enum class HostFuncs {
 // Memory function calls
 const std::string CL_CREATE_BUFFER = "clCreateBuffer";
 const std::string CL_ENQUEUE_WRITE_BUFFER = "clEnqueueWriteBuffer";
+const std::string CL_ENQUEUE_READ_BUFFER = "clEnqueueReadBuffer";
 const std::set<HostFuncs> HOST_MEM_FUNCS{HostFuncs::clCreateBuffer,
-                                         HostFuncs::clEnqueueWriteBuffer};
+                                         HostFuncs::clEnqueueWriteBuffer,
+                                         HostFuncs::clEnqueueReadBuffer};
 
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
@@ -118,6 +121,7 @@ const std::set<HostFuncs> HOST_REDUNDANT_FUNCS{
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
     {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer},
+    {CL_ENQUEUE_READ_BUFFER, HostFuncs::clEnqueueReadBuffer},
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
     {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
