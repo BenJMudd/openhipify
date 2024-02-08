@@ -360,8 +360,14 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
     return ReplaceCreateBuffer(callExpr);
   } break;
   case OpenCL::HostFuncs::clEnqueueWriteBuffer: {
-    return ReplaceEnqueWriteBuffer(callExpr);
-  }
+    return ReplaceEnqueBuffer(callExpr, false);
+  } break;
+  case OpenCL::HostFuncs::clEnqueueReadBuffer: {
+    return ReplaceEnqueBuffer(callExpr, true);
+  } break;
+  case OpenCL::HostFuncs::clReleaseMemObject: {
+    ReplaceReleaseMemObject(callExpr);
+  } break;
   default: {
   } break;
   }
@@ -439,14 +445,10 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
 }
 
 // TODO: Handle error return for clCreateWriteBuffer
-bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
+bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
+                                          bool isRead) {
   // Replace function name with memcpy
-  SourceLocation funcNameLoc = callExpr->getBeginLoc();
-  std::string funcNameStr =
-      callExpr->getDirectCallee()->getNameInfo().getName().getAsString();
-  ct::Replacement nameReplacement(*SM, funcNameLoc, funcNameStr.length(),
-                                  HIP::MEMCPY);
-  llvm::consumeError(m_replacements.add(nameReplacement));
+  RewriteFuncName(callExpr, HIP::MEMCPY);
 
   // Extract args at series src, dst, offset, size
   const Expr *argDst = callExpr->getArg(1);
@@ -482,8 +484,19 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   // Construct new arguments
   std::string hipMemcpyArgs;
   llvm::raw_string_ostream hipMemcpyArgsStr(hipMemcpyArgs);
-  hipMemcpyArgsStr << argDstWithOffStr.str() << "," << argSrcStr << ","
-                   << argSizeStr << "," << HIP::MEMCPY_HOST_DEVICE;
+  if (isRead) {
+    hipMemcpyArgsStr << argSrcStr << "," << argDstWithOffStr.str();
+  } else {
+    hipMemcpyArgsStr << argDstWithOffStr.str() << "," << argSrcStr;
+  }
+
+  hipMemcpyArgsStr << "," << argSizeStr << ",";
+
+  if (isRead) {
+    hipMemcpyArgsStr << HIP::MEMCPY_DEVICE_HOST;
+  } else {
+    hipMemcpyArgsStr << HIP::MEMCPY_HOST_DEVICE;
+  }
 
   // remove args, and replace
   SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
@@ -493,6 +506,12 @@ bool OpenHipifyHostFA::ReplaceEnqueWriteBuffer(const CallExpr *callExpr) {
   llvm::consumeError(m_replacements.add(argsRepl));
 
   return true;
+}
+
+bool OpenHipifyHostFA::ReplaceReleaseMemObject(
+    const clang::CallExpr *callExpr) {
+  RewriteFuncName(callExpr, HIP::FREE);
+  return false;
 }
 
 bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
@@ -602,6 +621,16 @@ bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
   }
 
   return true;
+}
+
+void OpenHipifyHostFA::RewriteFuncName(const clang::CallExpr *callExpr,
+                                       std::string newName) {
+  SourceLocation funcNameLoc = callExpr->getBeginLoc();
+  std::string funcNameStr =
+      callExpr->getDirectCallee()->getNameInfo().getName().getAsString();
+  ct::Replacement nameReplacement(*SM, funcNameLoc, funcNameStr.length(),
+                                  newName);
+  llvm::consumeError(m_replacements.add(nameReplacement));
 }
 
 void OpenHipifyHostFA::RemoveDeclFromSource(const clang::Decl *decl) {
