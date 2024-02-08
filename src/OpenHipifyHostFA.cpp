@@ -7,6 +7,7 @@ using namespace ASTMatch;
 using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
+const StringRef B_VAR_DECL = "varDecl";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
@@ -18,6 +19,8 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   // case matching
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
+
+  m_finder->addMatcher(varDecl(isExpansionInMainFile()).bind(B_VAR_DECL), this);
 
   return m_finder->newASTConsumer();
 }
@@ -282,6 +285,9 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
     return;
+
+  if (VariableDeclaration(res))
+    return;
 }
 
 bool OpenHipifyHostFA::FunctionCall(
@@ -304,20 +310,46 @@ bool OpenHipifyHostFA::FunctionCall(
   if (iter != OpenCL::HOST_MEM_FUNCS.end()) {
     // Memory related function found
     HandleMemoryFunctionCall(callExpr, *iter);
+    return true;
   }
 
   iter = OpenCL::HOST_KERNEL_FUNCS.find(funcSearch->second);
   if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
     // Kernel related function found
     HandleKernelFunctionCall(callExpr, *iter);
+    return true;
   }
 
   iter = OpenCL::HOST_REDUNDANT_FUNCS.find(funcSearch->second);
   if (iter != OpenCL::HOST_REDUNDANT_FUNCS.end()) {
     // Kernel related function found
     HandleRedundantFunctionCall(callExpr);
+    return true;
   }
 
+  return false;
+}
+
+bool OpenHipifyHostFA::VariableDeclaration(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL);
+  if (!varDecl)
+    return false;
+
+  const IdentifierInfo *typeIdentifier =
+      varDecl->getType().getBaseTypeIdentifier();
+  if (!typeIdentifier)
+    return false;
+
+  std::string varType(typeIdentifier->getName());
+  auto iter = OpenCL::CL_TYPES.find(varType);
+  if (iter != OpenCL::CL_TYPES.end()) {
+    // Remove statement containing redundant opencl types
+    // TODO: This is obviously an awful way of doing this, maybe do some
+    // analysis???
+    RemoveDeclFromSource(varDecl);
+    return true;
+  }
   return false;
 }
 

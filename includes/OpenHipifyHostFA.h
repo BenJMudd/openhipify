@@ -30,6 +30,7 @@ private:
   void EndSourceFileAction() override;
 
   bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
+  bool VariableDeclaration(const ASTMatch::MatchFinder::MatchResult &res);
 
   bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
