@@ -51,19 +51,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     // Set after the first launch command has been processed
     bool argsFinalised = false;
 
-    auto RemoveExprFromSrc = [&](const Expr *expr) {
-      SourceLocation start = expr->getBeginLoc();
-
-      // Lex for a semi colon to end the expression
-      SourceLocation end =
-          LexForTokenLocation(expr->getEndLoc(), clang::tok::semi)
-              .getLocWithOffset(1);
-
-      CharSourceRange exprRng = CharSourceRange::getCharRange(start, end);
-      ct::Replacement exprRepl(*SM, exprRng, "");
-      llvm::consumeError(m_replacements.add(exprRepl));
-    };
-
     auto StripAddrOfOp = [&](const Expr *expr,
                              bool &isAddrStripped) -> std::string {
       // Test if & is used to describe arg
@@ -251,7 +238,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       // Remove expression
-      RemoveExprFromSrc(setArgExpr);
+      RemoveExprFromSource(setArgExpr);
     };
 
     auto argIter = kInfo.args.begin();
@@ -272,7 +259,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       if (isAllLaunchesProcessed) {
         // Handle dangling args, i.e. remove them from source
-        RemoveExprFromSrc(*argIter);
+        RemoveExprFromSource(*argIter);
         argIter++;
         continue;
       }
@@ -323,6 +310,12 @@ bool OpenHipifyHostFA::FunctionCall(
   if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
     // Kernel related function found
     HandleKernelFunctionCall(callExpr, *iter);
+  }
+
+  iter = OpenCL::HOST_REDUNDANT_FUNCS.find(funcSearch->second);
+  if (iter != OpenCL::HOST_REDUNDANT_FUNCS.end()) {
+    // Kernel related function found
+    HandleRedundantFunctionCall(callExpr);
   }
 
   return false;
@@ -489,6 +482,21 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   return false;
 }
 
+bool OpenHipifyHostFA::HandleRedundantFunctionCall(
+    const clang::CallExpr *callExpr) {
+  // Need to test if it has return value
+
+  auto callExprParIter = AST->getParents(*callExpr).begin();
+  // Grab kernel declaration
+  const VarDecl *varDecl = callExprParIter->get<VarDecl>();
+  if (varDecl) {
+    RemoveDeclFromSource(varDecl);
+  } else {
+    RemoveExprFromSource(callExpr);
+  }
+  return true;
+}
+
 bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
   const ValueDecl *kernelDecl;
   if (!ExtractKernelDeclFromArg(callExpr, 0, &kernelDecl)) {
@@ -532,6 +540,9 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
   // kernels have the same name in different files
 
   m_kernelTracker.InsertName(kernelDecl, kernelStr);
+
+  // Remove kernel create from source
+  RemoveDeclFromSource(kernelDecl);
   return true;
 }
 
@@ -561,8 +572,33 @@ bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
   return true;
 }
 
+void OpenHipifyHostFA::RemoveDeclFromSource(const clang::Decl *decl) {
+  SourceRange exprRng = decl->getSourceRange();
+  RemoveStmtRangeFromSource(exprRng);
+}
+
+void OpenHipifyHostFA::RemoveExprFromSource(const clang::Expr *expr) {
+  SourceRange exprRng = expr->getSourceRange();
+  RemoveStmtRangeFromSource(exprRng);
+}
+
+void OpenHipifyHostFA::RemoveStmtRangeFromSource(SourceRange rng) {
+  SourceLocation exprEndLoc =
+      LexForTokenLocation(rng.getEnd(), clang::tok::semi).getLocWithOffset(1);
+
+  CharSourceRange fullExprRng =
+      CharSourceRange::getCharRange(rng.getBegin(), exprEndLoc);
+  ct::Replacement exprRepl(*SM, fullExprRng, "");
+  llvm::consumeError(m_replacements.add(exprRepl));
+}
+
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
   CharSourceRange rng = CharSourceRange::getTokenRange(expr->getSourceRange());
+  return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+}
+
+std::string OpenHipifyHostFA::DeclToStr(const clang::Decl *decl) {
+  CharSourceRange rng = CharSourceRange::getTokenRange(decl->getSourceRange());
   return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
 }
 

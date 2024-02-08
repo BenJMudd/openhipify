@@ -35,6 +35,7 @@ private:
                                 OpenCL::HostFuncs func);
   bool HandleKernelFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
+  bool HandleRedundantFunctionCall(const clang::CallExpr *callExpr);
 
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
@@ -49,7 +50,12 @@ private:
                                 size_t argIndex,
                                 const clang::ValueDecl **kernelDecl);
 
+  void RemoveDeclFromSource(const clang::Decl *decl);
+  void RemoveExprFromSource(const clang::Expr *decl);
+  void RemoveStmtRangeFromSource(clang::SourceRange rng);
+
   std::string ExprToStr(const clang::Expr *expr);
+  std::string DeclToStr(const clang::Decl *decl);
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
 
