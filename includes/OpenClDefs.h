@@ -58,7 +58,18 @@ enum class HostFuncs {
   clEnqueueWriteBuffer,
   clSetKernelArg,
   clEnqueueNDRangeKernel,
-  clCreateKernel
+  clCreateKernel,
+  clGetPlatformIDs,
+  clGetDeviceIDs,
+  clCreateContext,
+  clCreateCommandQueue,
+  clCreateProgramWithSource,
+  clBuildProgram,
+  clFinish,
+  clReleaseProgram,
+  clReleaseKernel,
+  clReleaseContext,
+  clReleaseCommandQueue
 };
 
 // Memory function calls
@@ -75,12 +86,48 @@ const std::set<HostFuncs> HOST_KERNEL_FUNCS{HostFuncs::clSetKernelArg,
                                             HostFuncs::clEnqueueNDRangeKernel,
                                             HostFuncs::clCreateKernel};
 
+// Redundant function calls
+const std::string CL_GET_PLATFORM_IDS = "clGetPlatformIDs";
+const std::string CL_GET_DEVICE_IDS = "clGetDeviceIDs";
+const std::string CL_CREATE_CONTEXT = "clCreateContext";
+const std::string CL_CREATE_COMMAND_QUEUE = "clCreateCommandQueue";
+const std::string CL_CREATE_PROGRAM_W_SOURCE = "clCreateProgramWithSource";
+const std::string CL_BUILD_PROGRAM = "clBuildProgram";
+const std::string CL_FINISH = "clFinish";
+const std::string CL_RELEASE_PROGRAM = "clReleaseProgram";
+const std::string CL_RELEASE_KERNEL = "clReleaseKernel";
+const std::string CL_RELEASE_CONTEXT = "clReleaseContext";
+const std::string CL_RELEASE_COMMAND_QUEUE = "clReleaseCommandQueue";
+const std::set<HostFuncs> HOST_REDUNDANT_FUNCS{
+    HostFuncs::clGetPlatformIDs,
+    HostFuncs::clGetDeviceIDs,
+    HostFuncs::clCreateContext,
+    HostFuncs::clCreateCommandQueue,
+    HostFuncs::clCreateProgramWithSource,
+    HostFuncs::clBuildProgram,
+    HostFuncs::clFinish,
+    HostFuncs::clReleaseProgram,
+    HostFuncs::clReleaseKernel,
+    HostFuncs::clReleaseContext,
+    HostFuncs::clReleaseCommandQueue};
+
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
     {CL_ENQUEUE_WRITE_BUFFER, HostFuncs::clEnqueueWriteBuffer},
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
     {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
+    {CL_GET_PLATFORM_IDS, HostFuncs::clGetPlatformIDs},
+    {CL_GET_DEVICE_IDS, HostFuncs::clGetDeviceIDs},
+    {CL_CREATE_CONTEXT, HostFuncs::clCreateContext},
+    {CL_CREATE_COMMAND_QUEUE, HostFuncs::clCreateCommandQueue},
+    {CL_CREATE_PROGRAM_W_SOURCE, HostFuncs::clCreateProgramWithSource},
+    {CL_BUILD_PROGRAM, HostFuncs::clBuildProgram},
+    {CL_FINISH, HostFuncs::clFinish},
+    {CL_RELEASE_PROGRAM, HostFuncs::clReleaseProgram},
+    {CL_RELEASE_KERNEL, HostFuncs::clReleaseKernel},
+    {CL_RELEASE_CONTEXT, HostFuncs::clReleaseContext},
+    {CL_RELEASE_COMMAND_QUEUE, HostFuncs::clReleaseCommandQueue},
 };
 
 } // namespace OpenCL
