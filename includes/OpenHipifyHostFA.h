@@ -69,6 +69,7 @@ private:
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
 
+  // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
 
   ct::Replacements &m_replacements;

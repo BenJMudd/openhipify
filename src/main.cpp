@@ -95,21 +95,25 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
   for (auto &[kernelFileName, kernelDefs] : kTracker) {
     // Generation of header file
     std::ofstream headerFile(kernelFileName + ".hpp");
+    headerFile << sOpenHipifyGenerated;
     headerFile << "#pragma once\n\n";
     for (auto &[kName, kDef] : kernelDefs) {
       headerFile << kDef << "\n";
     }
+    headerFile << sOpenHipifyGeneratedEnd;
     headerFile.close();
 
     // Appending include of header to kernel definition
     std::string kernelTransFile(kernelFileName + ".cpp");
     std::fstream kernelDefFile(kernelTransFile);
     std::stringstream prependedKernelDefFile;
-
+    prependedKernelDefFile << sOpenHipifyGenerated;
     prependedKernelDefFile << "#include \"" << kernelFileName + ".hpp"
                            << "\"\n";
 
     prependedKernelDefFile << kernelDefFile.rdbuf();
+    prependedKernelDefFile << sOpenHipifyGeneratedEnd;
+
     kernelDefFile.close();
 
     kernelDefFile.open(kernelTransFile,

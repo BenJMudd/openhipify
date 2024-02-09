@@ -27,6 +27,7 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 
 void OpenHipifyHostFA::EndSourceFileAction() {
   m_kernelTracker.Finalise(*SM);
+  std::set<std::string> kernelFilesUsed;
 
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
@@ -188,6 +189,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         if (includeIter == includeDefs.end()) {
           includeDefs[kInfo.funcName] = kDef->functionDef;
         }
+
+        kernelFilesUsed.insert(kDef->fileName);
       }
     };
 
@@ -296,6 +299,21 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
     }
   }
+
+  // insert #include for used kernel files
+  std::string includes;
+  llvm::raw_string_ostream includesStr(includes);
+  includesStr << sOpenHipifyGenerated;
+  for (std::string trackedInclude : kernelFilesUsed) {
+    includesStr << "#include \"" << trackedInclude << ".hpp\"\n";
+  }
+
+  includesStr << sOpenHipifyGeneratedEnd;
+
+  SourceLocation includeInsertLoc =
+      SM->getLocForStartOfFile(SM->getMainFileID());
+  ct::Replacement IncludeRepl(*SM, includeInsertLoc, 0, includesStr.str());
+  llvm::consumeError(m_replacements.add(IncludeRepl));
 }
 
 void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
