@@ -6,21 +6,20 @@
 
 namespace ct = clang::tooling;
 
-// T -> type of Frontend Action
-template <typename T>
-class OpenHipifyFAFactory : public ct::FrontendActionFactory {
+class OpenHipifyKernelFAFactory : public ct::FrontendActionFactory {
 public:
-  explicit OpenHipifyFAFactory(
+  explicit OpenHipifyKernelFAFactory(
       ct::Replacements &replacements,
-      std::map<std::string, KernelDefinition> &kFuncMap)
+      std::map<std::string, const KernelDefinition> &kFuncMap)
       : ct::FrontendActionFactory(), m_replacements(replacements),
         m_kernelFuncMap(kFuncMap) {}
 
   std::unique_ptr<clang::FrontendAction> create() override {
-    return std::make_unique<T>(m_replacements, m_kernelFuncMap);
+    return std::make_unique<OpenHipifyKernelFA>(m_replacements,
+                                                m_kernelFuncMap);
   }
 
 private:
   ct::Replacements &m_replacements;
-  std::map<std::string, KernelDefinition> &m_kernelFuncMap;
+  std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
 };

@@ -1,7 +1,8 @@
 #include "KernelTracking.h"
-#include "OpenHipifyFAFactory.h"
 #include "OpenHipifyHostFA.h"
+#include "OpenHipifyHostFAFactory.h"
 #include "OpenHipifyKernelFA.h"
+#include "OpenHipifyKernelFAFactory.h"
 #include "args/Arguments.h"
 #include "utils/Defs.h"
 #include "utils/PathUtils.h"
@@ -11,6 +12,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 
+#include <fstream>
 #include <sstream>
 
 using namespace llvm;
@@ -49,9 +51,9 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
 } // namespace
   // llvm::sys::fs'boolSortSourceFilePaths(conststd::vector<std::string>&srcList,std::vector<std::string>&kernelSrcList,std::vector<std::string>&hostSrcList)
 
-template <class FRONTEND_ACTION>
 void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
-                 std::map<std::string, KernelDefinition> &kFuncMap,
+                 std::map<std::string, const KernelDefinition> &kFuncMap,
+                 OpenHipifyHostFA::KernelIncludeTracker *kTracker,
                  bool isKernel) {
   std::error_code err;
 
@@ -67,9 +69,15 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
   ct::RefactoringTool refactoringTool(optParser.getCompilations(), tmpFileStr);
   ct::Replacements &replacements =
       refactoringTool.getReplacements()[tmpFileStr];
-  OpenHipifyFAFactory<FRONTEND_ACTION> FAFactory(replacements, kFuncMap);
 
-  [[maybe_unused]] int ret = refactoringTool.runAndSave(&FAFactory);
+  [[maybe_unused]] int ret;
+  if (isKernel) {
+    OpenHipifyKernelFAFactory FAFactory(replacements, kFuncMap);
+    ret = refactoringTool.runAndSave(&FAFactory);
+  } else {
+    OpenHipifyHostFAFactory FAFactory(replacements, kFuncMap, *kTracker);
+    ret = refactoringTool.runAndSave(&FAFactory);
+  }
 
   // copy the temporary file including rewrites to designated
   // target file
@@ -81,6 +89,45 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
     return;
   }
   fs::remove(tmpFile);
+}
+
+void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
+  for (auto &[kernelFileName, kernelDefs] : kTracker) {
+    // Generation of header file
+    std::ofstream headerFile(kernelFileName + ".hpp");
+    headerFile << sOpenHipifyGenerated;
+    headerFile << "#pragma once\n\n";
+    for (auto &[kName, kDef] : kernelDefs) {
+      headerFile << kDef << "\n";
+    }
+    headerFile << sOpenHipifyGeneratedEnd;
+    headerFile.close();
+
+    // Appending include of header to kernel definition
+    std::string kernelTransFile(kernelFileName + ".cpp");
+    std::fstream kernelDefFile(kernelTransFile);
+    // take first two lines (gen by hip, and hip runtime)
+    std::stringstream prependedKernelDefFile;
+    for (int i = 0; i < 2; ++i) {
+      if (kernelDefFile.good()) {
+        std::string line;
+        getline(kernelDefFile, line);
+        prependedKernelDefFile << line << "\n";
+      }
+    }
+
+    prependedKernelDefFile << "\n#include \"" << kernelFileName + ".hpp"
+                           << "\"\n\n";
+
+    prependedKernelDefFile << kernelDefFile.rdbuf();
+
+    kernelDefFile.close();
+
+    kernelDefFile.open(kernelTransFile,
+                       std::fstream::out | std::fstream::trunc);
+    kernelDefFile << prependedKernelDefFile.rdbuf();
+    kernelDefFile.close();
+  }
 }
 
 int main(int argc, const char **argv) {
@@ -106,14 +153,17 @@ int main(int argc, const char **argv) {
   if (!SortSourceFilePaths(srcFiles, kernelFiles, hostFiles))
     return 1;
 
-  std::map<std::string, KernelDefinition> kernelFuncMap;
+  std::map<std::string, const KernelDefinition> kernelFuncMap;
   for (const auto &kernelFile : kernelFiles) {
-    ProcessFile<OpenHipifyKernelFA>(kernelFile, optParser, kernelFuncMap, true);
+    ProcessFile(kernelFile, optParser, kernelFuncMap, nullptr, true);
   }
 
+  OpenHipifyHostFA::KernelIncludeTracker kTracker;
   for (const auto &hostFile : hostFiles) {
-    ProcessFile<OpenHipifyHostFA>(hostFile, optParser, kernelFuncMap, false);
+    ProcessFile(hostFile, optParser, kernelFuncMap, &kTracker, false);
   }
+
+  GenerateHeaderFiles(kTracker);
 
   return 0;
 } // namespace clang::toolingintmain(intargc,charconst**argv)
