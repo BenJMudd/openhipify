@@ -93,12 +93,29 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
 
 void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
   for (auto &[kernelFileName, kernelDefs] : kTracker) {
-    std::ofstream headerFile(kernelFileName + ".h");
+    // Generation of header file
+    std::ofstream headerFile(kernelFileName + ".hpp");
     headerFile << "#pragma once\n\n";
     for (auto &[kName, kDef] : kernelDefs) {
       headerFile << kDef << "\n";
     }
     headerFile.close();
+
+    // Appending include of header to kernel definition
+    std::string kernelTransFile(kernelFileName + ".cpp");
+    std::fstream kernelDefFile(kernelTransFile);
+    std::stringstream prependedKernelDefFile;
+
+    prependedKernelDefFile << "#include \"" << kernelFileName + ".hpp"
+                           << "\"\n";
+
+    prependedKernelDefFile << kernelDefFile.rdbuf();
+    kernelDefFile.close();
+
+    kernelDefFile.open(kernelTransFile,
+                       std::fstream::out | std::fstream::trunc);
+    kernelDefFile << prependedKernelDefFile.rdbuf();
+    kernelDefFile.close();
   }
 }
 
