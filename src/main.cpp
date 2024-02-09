@@ -106,13 +106,20 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
     // Appending include of header to kernel definition
     std::string kernelTransFile(kernelFileName + ".cpp");
     std::fstream kernelDefFile(kernelTransFile);
+    // take first two lines (gen by hip, and hip runtime)
     std::stringstream prependedKernelDefFile;
-    prependedKernelDefFile << sOpenHipifyGenerated;
-    prependedKernelDefFile << "#include \"" << kernelFileName + ".hpp"
-                           << "\"\n";
+    for (int i = 0; i < 2; ++i) {
+      if (kernelDefFile.good()) {
+        std::string line;
+        getline(kernelDefFile, line);
+        prependedKernelDefFile << line << "\n";
+      }
+    }
+
+    prependedKernelDefFile << "\n#include \"" << kernelFileName + ".hpp"
+                           << "\"\n\n";
 
     prependedKernelDefFile << kernelDefFile.rdbuf();
-    prependedKernelDefFile << sOpenHipifyGeneratedEnd;
 
     kernelDefFile.close();
 

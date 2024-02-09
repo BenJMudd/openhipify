@@ -304,6 +304,9 @@ void OpenHipifyHostFA::EndSourceFileAction() {
   std::string includes;
   llvm::raw_string_ostream includesStr(includes);
   includesStr << sOpenHipifyGenerated;
+  // include hip runtime
+  includesStr << "#include \"hip/hip_runtime.h\"\n\n";
+
   for (std::string trackedInclude : kernelFilesUsed) {
     includesStr << "#include \"" << trackedInclude << ".hpp\"\n";
   }

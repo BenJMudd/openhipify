@@ -33,30 +33,29 @@ void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 }
 
 void OpenHipifyKernelFA::EndSourceFileAction() {
+  std::string prepend;
+  llvm::raw_string_ostream prependStr(prepend);
+  prependStr << sOpenHipifyGenerated;
+  // include hip runtime
+  prependStr << "#include \"hip/hip_runtime.h\"\n\n";
   // Inserting auxiliary functions
   if (!m_auxFunctions.empty()) {
-
-    std::string auxFuncs;
-    llvm::raw_string_ostream auxFuncStream(auxFuncs);
-
-    auxFuncStream << sOpenHipifyGenerated;
 
     // Concatonate into singular string for a single insert
     for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
       auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
       const std::string &funcBody = funcToInsert->second.second;
-      auxFuncStream << funcBody;
+      prependStr << funcBody;
     }
 
-    auxFuncStream << sOpenHipifyGeneratedEnd;
-
-    SourceManager &srcManager = getCompilerInstance().getSourceManager();
-    SourceLocation funcInsertloc =
-        srcManager.getLocForStartOfFile(srcManager.getMainFileID());
-    ct::Replacement replacementBody(srcManager, funcInsertloc, 0,
-                                    auxFuncStream.str());
-    llvm::consumeError(m_replacements.add(replacementBody));
+    prependStr << sOpenHipifyGeneratedEnd;
   }
+
+  SourceManager &srcManager = getCompilerInstance().getSourceManager();
+  SourceLocation prependLoc =
+      srcManager.getLocForStartOfFile(srcManager.getMainFileID());
+  ct::Replacement prependRepl(srcManager, prependLoc, 0, prependStr.str());
+  llvm::consumeError(m_replacements.add(prependRepl));
 }
 
 bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
