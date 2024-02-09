@@ -125,7 +125,8 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
 
     kernelDefFile.open(kernelTransFile,
                        std::fstream::out | std::fstream::trunc);
-    kernelDefFile << prependedKernelDefFile.rdbuf();
+    kernelDefFile << prependedKernelDefFile.rdbuf() << "\n"
+                  << sOpenHipifyGeneratedEnd;
     kernelDefFile.close();
   }
 }
