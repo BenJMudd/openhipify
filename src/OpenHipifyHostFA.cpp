@@ -137,13 +137,19 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       launchKernelArgsStr << "0,0";
 
+      // retrive kernel definition
+      const KernelDefinition *kDef = nullptr;
+      auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
+      if (kFuncMapIter != m_kernelFuncMap.end()) {
+        kDef = &kFuncMapIter->second;
+      }
+
       // Append extracted args
       for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
         launchKernelArgsStr << ",";
         if (args[argIdx].toCast) {
-          auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
-          if (kFuncMapIter != m_kernelFuncMap.end()) {
-            std::string typeToCast = kFuncMapIter->second.argTypes[argIdx];
+          if (kDef) {
+            std::string typeToCast = kDef->argTypes[argIdx];
             launchKernelArgsStr << "(" << typeToCast << ")";
           } else {
             llvm::errs() << sOpenHipify << sWarn
@@ -173,6 +179,16 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
       ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
       llvm::consumeError(m_replacements.add(argsRepl));
+
+      // Track kernel launch for future include file generation
+      if (kDef) {
+        std::map<std::string, std::string> &includeDefs =
+            m_kernelIncludeTracker[kDef->fileName];
+        auto includeIter = includeDefs.find(kInfo.funcName);
+        if (includeIter == includeDefs.end()) {
+          includeDefs[kInfo.funcName] = kDef->functionDef;
+        }
+      }
     };
 
     auto HandleArgExpr = [&](const CallExpr *setArgExpr) { // Extract arg number

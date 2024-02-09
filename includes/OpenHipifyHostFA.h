@@ -17,8 +17,9 @@ class OpenHipifyHostFA : public clang::ASTFrontendAction,
   using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
 
 public:
+  // file name -> (kernel name -> kernel definition)
   using KernelIncludeTracker =
-      std::map<std::string, std::map<std::string, const KernelDefinition>>;
+      std::map<std::string, std::map<std::string, std::string>>;
 
   explicit OpenHipifyHostFA(
       ct::Replacements &replacements,
@@ -75,5 +76,5 @@ private:
   clang::ASTContext *AST;
   MatchFinderPtr m_finder;
   KernelLaunchTracker m_kernelTracker;
-  KernelIncludeTracker m_kernelIncludeTracker;
+  KernelIncludeTracker &m_kernelIncludeTracker;
 };
