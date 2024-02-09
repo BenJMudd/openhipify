@@ -12,6 +12,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 
+#include <fstream>
 #include <sstream>
 
 using namespace llvm;
@@ -90,6 +91,17 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
   fs::remove(tmpFile);
 }
 
+void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
+  for (auto &[kernelFileName, kernelDefs] : kTracker) {
+    std::ofstream headerFile(kernelFileName + ".h");
+    headerFile << "#pragma once\n\n";
+    for (auto &[kName, kDef] : kernelDefs) {
+      headerFile << kDef << "\n";
+    }
+    headerFile.close();
+  }
+}
+
 int main(int argc, const char **argv) {
   auto cop = ct::CommonOptionsParser::create(
       argc, argv, OpenHipifyToolTemplateCategory, llvm::cl::ZeroOrMore);
@@ -122,6 +134,8 @@ int main(int argc, const char **argv) {
   for (const auto &hostFile : hostFiles) {
     ProcessFile(hostFile, optParser, kernelFuncMap, &kTracker, false);
   }
+
+  GenerateHeaderFiles(kTracker);
 
   return 0;
 } // namespace clang::toolingintmain(intargc,charconst**argv)
