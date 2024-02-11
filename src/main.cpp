@@ -12,6 +12,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -19,6 +20,7 @@ using namespace llvm;
 using namespace OpenHipify;
 namespace ct = clang::tooling;
 namespace fs = sys::fs;
+namespace stdfs = std::filesystem;
 
 bool SortSourceFilePaths(const std::vector<std::string> &srcList,
                          std::vector<std::string> &kernelSrcList,
@@ -67,6 +69,15 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
 
   // Do refactoring
   ct::RefactoringTool refactoringTool(optParser.getCompilations(), tmpFileStr);
+
+  // arguments include
+  std::string curDir(stdfs::current_path());
+  std::string curDirIncludeArg = curDir;
+  refactoringTool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(
+      curDirIncludeArg.c_str(), ct::ArgumentInsertPosition::BEGIN));
+  refactoringTool.appendArgumentsAdjuster(
+      ct::getInsertArgumentAdjuster("-I", ct::ArgumentInsertPosition::BEGIN));
+
   ct::Replacements &replacements =
       refactoringTool.getReplacements()[tmpFileStr];
 
@@ -117,7 +128,7 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
     }
 
     prependedKernelDefFile << "\n#include \"" << kernelFileName + ".hpp"
-                           << "\"\n\n";
+                           << "\"\n " << sOpenHipifyGeneratedEnd << "\n";
 
     prependedKernelDefFile << kernelDefFile.rdbuf();
 
@@ -125,8 +136,7 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
 
     kernelDefFile.open(kernelTransFile,
                        std::fstream::out | std::fstream::trunc);
-    kernelDefFile << prependedKernelDefFile.rdbuf() << "\n"
-                  << sOpenHipifyGeneratedEnd;
+    kernelDefFile << prependedKernelDefFile.rdbuf() << "\n";
     kernelDefFile.close();
   }
 }
