@@ -27,7 +27,7 @@ enum class AUX_FUNC_ID : uint32_t {
 
 const std::string GET_GLOBAL_ID_FUNC_NAME = "__get_global_id";
 const std::string GET_GLOBAL_ID_BODY =
-    "__device size_t " + GET_GLOBAL_ID_FUNC_NAME +
+    "__device__ size_t " + GET_GLOBAL_ID_FUNC_NAME +
     "(uint dim) {"
     "switch (dim) {"
     "case 0: {"
@@ -47,7 +47,7 @@ const std::string GET_GLOBAL_ID_BODY =
     "}\n";
 
 const std::string GET_LOCAL_ID_FUNC_NAME = "__get_local_id";
-const std::string GET_LOCAL_ID_BODY = "__device size_t " +
+const std::string GET_LOCAL_ID_BODY = "__device__ size_t " +
                                       GET_LOCAL_ID_FUNC_NAME +
                                       "(uint dim) {"
                                       "switch (dim) {"
@@ -68,7 +68,7 @@ const std::string GET_LOCAL_ID_BODY = "__device size_t " +
                                       "}\n";
 
 const std::string GET_GROUP_ID_FUNC_NAME = "__get_group_id";
-const std::string GET_GROUP_ID_BODY = "__device size_t " +
+const std::string GET_GROUP_ID_BODY = "__device__ size_t " +
                                       GET_GROUP_ID_FUNC_NAME +
                                       "(uint dim) {"
                                       "switch (dim) {"
@@ -89,7 +89,7 @@ const std::string GET_GROUP_ID_BODY = "__device size_t " +
                                       "}\n";
 
 const std::string GET_LOCAL_SIZE_FUNC_NAME = "__get_group_id";
-const std::string GET_LOCAL_SIZE_BODY = "__device size_t " +
+const std::string GET_LOCAL_SIZE_BODY = "__device__ size_t " +
                                         GET_LOCAL_SIZE_FUNC_NAME +
                                         "(uint dim) {"
                                         "switch (dim) {"

@@ -128,7 +128,7 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
     }
 
     prependedKernelDefFile << "\n#include \"" << kernelFileName + ".hpp"
-                           << "\"\n " << sOpenHipifyGeneratedEnd << "\n";
+                           << "\"\n";
 
     prependedKernelDefFile << kernelDefFile.rdbuf();
 

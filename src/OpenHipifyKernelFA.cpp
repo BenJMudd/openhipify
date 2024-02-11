@@ -37,19 +37,18 @@ void OpenHipifyKernelFA::EndSourceFileAction() {
   llvm::raw_string_ostream prependStr(prepend);
   prependStr << sOpenHipifyGenerated;
   // include hip runtime
-  prependStr << "#include \"hip/hip_runtime.h\"\n\n";
+  prependStr << "#include \"hip/hip_runtime.h\"\n";
   // Inserting auxiliary functions
   if (!m_auxFunctions.empty()) {
-
+    prependStr << "\n";
     // Concatonate into singular string for a single insert
     for (HIP::AUX_FUNC_ID auxFuncId : m_auxFunctions) {
       auto funcToInsert = HIP::AUX_FUNC_MAP.find(auxFuncId);
       const std::string &funcBody = funcToInsert->second.second;
       prependStr << funcBody;
     }
-
-    prependStr << sOpenHipifyGeneratedEnd;
   }
+  prependStr << sOpenHipifyGeneratedEnd;
 
   SourceManager &srcManager = getCompilerInstance().getSourceManager();
   SourceLocation prependLoc =
