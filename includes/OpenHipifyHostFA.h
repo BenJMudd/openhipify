@@ -70,7 +70,8 @@ private:
                                             clang::tok::TokenKind tokType);
 
   void PrettyError(clang::SourceRange loc,
-                   llvm::raw_ostream::Colors underlineCol);
+                   llvm::raw_ostream::Colors underlineCol,
+                   std::string extraInfo = "");
 
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;

@@ -7,11 +7,14 @@
 
 struct KernelDefinition {
   KernelDefinition() {}
-  KernelDefinition(std::string funcDef, std::string fName,
-                   std::vector<std::string> args)
-      : functionDef(funcDef), fileName(fName), argTypes(args) {}
+  KernelDefinition(std::string funcDef, std::string fName, unsigned line,
+                   unsigned col, std::vector<std::string> args)
+      : functionDef(funcDef), fileName(fName), defLine(line), defCol(col),
+        argTypes(args) {}
   std::string functionDef;
   std::string fileName;
+  unsigned defLine;
+  unsigned defCol;
   std::vector<std::string> argTypes;
 };
 
