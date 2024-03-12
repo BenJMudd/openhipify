@@ -75,7 +75,8 @@ enum class HostFuncs {
   clReleaseProgram,
   clReleaseKernel,
   clReleaseContext,
-  clReleaseCommandQueue
+  clReleaseCommandQueue,
+  clFlush
 };
 
 // Memory function calls
@@ -110,6 +111,7 @@ const std::string CL_RELEASE_PROGRAM = "clReleaseProgram";
 const std::string CL_RELEASE_KERNEL = "clReleaseKernel";
 const std::string CL_RELEASE_CONTEXT = "clReleaseContext";
 const std::string CL_RELEASE_COMMAND_QUEUE = "clReleaseCommandQueue";
+const std::string CL_FLUSH = "clFlush";
 const std::set<HostFuncs> HOST_REDUNDANT_FUNCS{
     HostFuncs::clGetPlatformIDs,
     HostFuncs::clGetDeviceIDs,
@@ -121,7 +123,8 @@ const std::set<HostFuncs> HOST_REDUNDANT_FUNCS{
     HostFuncs::clReleaseProgram,
     HostFuncs::clReleaseKernel,
     HostFuncs::clReleaseContext,
-    HostFuncs::clReleaseCommandQueue};
+    HostFuncs::clReleaseCommandQueue,
+    HostFuncs::clFlush};
 
 const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_CREATE_BUFFER, HostFuncs::clCreateBuffer},
@@ -142,6 +145,6 @@ const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_RELEASE_KERNEL, HostFuncs::clReleaseKernel},
     {CL_RELEASE_CONTEXT, HostFuncs::clReleaseContext},
     {CL_RELEASE_COMMAND_QUEUE, HostFuncs::clReleaseCommandQueue},
-};
+    {CL_FLUSH, HostFuncs::clFlush}};
 
 } // namespace OpenCL

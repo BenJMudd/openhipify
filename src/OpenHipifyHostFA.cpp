@@ -2,6 +2,7 @@
 #include "OpenClDefs.h"
 #include "utils/Defs.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "llvm/Support/WithColor.h"
 
 using namespace ASTMatch;
 using namespace clang;
@@ -75,16 +76,17 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
             if (!argsUse[i]) {
-              // Extract text for kernel launch
-              std::string kLaunchStr = ExprToStr(launchKernelExpr);
-              llvm::errs() << sOpenHipify << sErr
-                           << "Kernel launch: " << kLaunchStr
-                           << " at position: "
-                           << launchKernelExpr->getBeginLoc().printToString(*SM)
-                           << " accepts " << numArgs
+              llvm::errs() << sOpenHipify;
+              llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
+              llvm::errs() << "Kernel launch accepts " << numArgs
                            << " arguments, but argument at index " << i
                            << " has not been set."
                            << "\n";
+              PrettyError(
+                  {launchKernelExpr->getArg(1)->getBeginLoc(),
+                   launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(
+                       -1)},
+                  raw_ostream::RED);
               return false;
             }
           }
@@ -198,9 +200,13 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       const Expr *argPosExpr = setArgExpr->getArg(1);
       Expr::EvalResult argPosEval;
       if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
-        llvm::errs() << sOpenHipify << sErr
-                     << "Unable to parse kernel argument position at position: "
-                     << argPosExpr->getExprLoc().printToString(*SM);
+        llvm::errs() << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+        llvm::errs()
+            << "Unable to parse kernel argument position, skipping...\n";
+        PrettyError({argPosExpr->getBeginLoc(),
+                     setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+                    raw_ostream::YELLOW);
         return;
       }
 
@@ -246,9 +252,10 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
                      << setKernelArgStr << "\' at location: "
                      << setArgExpr->getExprLoc().printToString(*SM)
-                     << " references argument index: " << argPos
-                     << " where the kernel contains at maximum only "
-                     << args.size() << " argument(s)."
+                     << " references argument at index: " << argPos
+                     << " where kernel \'" << kInfo.funcName
+                     << "\' contains at maximum only " << args.size()
+                     << " argument(s)."
                      << "\n";
         return;
       }
@@ -265,6 +272,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
     auto argIter = kInfo.args.begin();
     auto launchIter = kInfo.launches.begin();
+    const Stmt *baseScopeStmt = nullptr;
+    const Expr *baseScopeExpr = nullptr;
     while (1) {
       bool isAllArgsProcessed = argIter == kInfo.args.end();
       bool isAllLaunchesProcessed = launchIter == kInfo.launches.end();
@@ -272,8 +281,44 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         break;
       }
 
+      // No previous arguments processed, record the current scope
+      // for the kernel
+      if (!baseScopeStmt) {
+        auto argScopeNode = AST->getParents(*((*argIter)->IgnoreCasts()));
+        baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+        baseScopeExpr = *argIter;
+      }
+
+      auto CheckScope = [&](const CallExpr *expr) -> bool {
+        auto exprScopeNode = AST->getParents(*(expr->IgnoreCasts()));
+        auto *exprScopeStmt = exprScopeNode.begin()->get<Stmt>();
+        if (exprScopeStmt != baseScopeStmt) {
+          llvm::errs() << sOpenHipify;
+          llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+          llvm::errs() << "Kernel reference function defined at a different "
+                          "scope than the initial reference.\n";
+          llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
+              << "Initial\n";
+          PrettyError(baseScopeExpr->getSourceRange(), raw_ostream::GREEN);
+          llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
+              << "Current\n";
+          PrettyError(expr->getSourceRange(), raw_ostream::YELLOW);
+          return false;
+        }
+
+        return true;
+      };
+      // TODO: finish
+      // To write about for diss, can go on about scope tracking for kernel
+      // launching
+
       if (isAllArgsProcessed) {
         // Handle dangling launches
+        if (!CheckScope(*launchIter)) {
+          launchIter++;
+          continue;
+        }
+
         HandlLaunchExpr(*launchIter);
         launchIter++;
         continue;
@@ -281,6 +326,11 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       if (isAllLaunchesProcessed) {
         // Handle dangling args, i.e. remove them from source
+        if (!CheckScope(*argIter)) {
+          argIter++;
+          continue;
+        }
+
         RemoveExprFromSource(*argIter);
         argIter++;
         continue;
@@ -291,9 +341,19 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       unsigned argPos = SM->getFileOffset(setArgExpr->getBeginLoc());
       unsigned launchPos = SM->getFileOffset(launchKernelExpr->getBeginLoc());
       if (argPos < launchPos) {
+        if (!CheckScope(setArgExpr)) {
+          argIter++;
+          continue;
+        }
+
         HandleArgExpr(setArgExpr);
         argIter++;
       } else {
+        if (!CheckScope(launchKernelExpr)) {
+          launchIter++;
+          continue;
+        }
+
         HandlLaunchExpr(launchKernelExpr);
         launchIter++;
       }
@@ -515,7 +575,7 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
     // Offset is not evaluateable, we must append the dest pointer
     // with the offset
     std::string argOffsetStr = ExprToStr(argOffset);
-    argDstWithOffStr << "(" << argDstStr << ")+(" << argOffsetStr << ")";
+    argDstWithOffStr << argDstStr << "+(" << argOffsetStr << ")";
   }
 
   // Construct new arguments
@@ -703,7 +763,6 @@ std::string OpenHipifyHostFA::DeclToStr(const clang::Decl *decl) {
 clang::SourceLocation
 OpenHipifyHostFA::LexForTokenLocation(clang::SourceLocation beginLoc,
                                       clang::tok::TokenKind tokType) {
-
   const char *startBuf = SM->getCharacterData(beginLoc);
   const char *fileEndBuf =
       SM->getCharacterData(SM->getLocForEndOfFile(SM->getMainFileID()));
@@ -716,4 +775,59 @@ OpenHipifyHostFA::LexForTokenLocation(clang::SourceLocation beginLoc,
   }
 
   return tok.getLocation();
+}
+
+void OpenHipifyHostFA::PrettyError(clang::SourceRange loc,
+                                   raw_ostream::Colors underlineCol) {
+  StringRef fileName = getCurrentFile();
+  fileName.consume_front("/tmp/");
+  size_t index = fileName.rfind('-');
+  fileName = fileName.take_front(index);
+
+  llvm::errs() << "<" << fileName << ">"
+               << "\n";
+
+  unsigned startLineNum = SM->getSpellingLineNumber(loc.getBegin());
+  // Get previous line
+  auto LineSourceLoc = [&](unsigned line) -> SourceLocation {
+    return SM->translateLineCol(SM->getMainFileID(), line, 1);
+  };
+  SourceLocation prevLineStart = LineSourceLoc(startLineNum - 1);
+  SourceLocation curLineStart = LineSourceLoc(startLineNum);
+  SourceLocation nextLineStart = LineSourceLoc(startLineNum + 1);
+  SourceLocation nextLineEnd = LineSourceLoc(startLineNum + 2);
+
+  auto LineText = [&](SourceLocation start, SourceLocation end) {
+    CharSourceRange rng = CharSourceRange::getTokenRange(start, end);
+    return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+  };
+
+  std::string prevLineStr = LineText(prevLineStart, curLineStart);
+  std::string curLineStr = LineText(curLineStart, nextLineStart);
+  std::string nextLineStr = LineText(nextLineStart, nextLineEnd);
+
+  auto printLine = [&](std::string str, unsigned line) {
+    llvm::errs() << line << "| " << str;
+  };
+
+  printLine(prevLineStr, startLineNum - 1);
+  printLine(curLineStr, startLineNum);
+
+  unsigned exprStartCol = SM->getSpellingColumnNumber(loc.getBegin());
+  unsigned exprEndCol = SM->getSpellingColumnNumber(loc.getEnd());
+  std::string curColNumString = std::to_string(startLineNum);
+  for (unsigned i = 0; i < curColNumString.size(); i++) {
+    llvm::errs() << " ";
+  }
+  llvm::errs() << "| ";
+  for (unsigned i = 1; i < exprStartCol; i++) {
+    llvm::errs() << " ";
+  }
+  for (unsigned i = exprStartCol; i < exprEndCol; i++) {
+    llvm::WithColor(llvm::errs(), underlineCol, true) << "^";
+  }
+
+  llvm::errs() << "\n";
+  printLine(nextLineStr, startLineNum + 1);
+  llvm::errs() << "\n";
 }
