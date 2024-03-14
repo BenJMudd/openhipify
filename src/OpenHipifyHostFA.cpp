@@ -57,6 +57,13 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     // Set after the first launch command has been processed
     bool argsFinalised = false;
 
+    // retrive kernel definition (if possible)
+    const KernelDefinition *kDef = nullptr;
+    auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
+    if (kFuncMapIter != m_kernelFuncMap.end()) {
+      kDef = &kFuncMapIter->second;
+    }
+
     auto StripAddrOfOp = [&](const Expr *expr,
                              bool &isAddrStripped) -> std::string {
       // Test if & is used to describe arg
@@ -73,13 +80,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     };
 
     auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
-      // retrive kernel definition (if possible)
-      const KernelDefinition *kDef = nullptr;
-      auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
-      if (kFuncMapIter != m_kernelFuncMap.end()) {
-        kDef = &kFuncMapIter->second;
-      }
-
       if (!argsFinalised) {
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
@@ -172,17 +172,25 @@ void OpenHipifyHostFA::EndSourceFileAction() {
             std::string typeToCast = kDef->argTypes[argIdx];
             launchKernelArgsStr << "(" << typeToCast << ")";
           } else {
-            llvm::errs() << sOpenHipify << sWarn
-                         << "Unable to generate cast for cl_mem argument \'"
-                         << args[argIdx].argStr
-                         << "\' used in kernel launch function at location: "
-                         << launchKernelExpr->getBeginLoc().printToString(*SM)
-                         << " due to not tracking the original kernel "
-                            "definition. Include the definition for kernel: \'"
+            ERR_BOLD_STR << sOpenHipify;
+            llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+            ERR_BOLD_STR << "Unable to generate cast for cl_mem argument '"
+                         << args[argIdx].argStr << "' for kernel '"
                          << kInfo.funcName
-                         << "\' in the "
-                            "compilation process to generate cast."
-                         << "\n";
+                         << "' during launch. Include the definition in the "
+                            "transpilation "
+                            "process to generate cast.\n";
+            // Extra kernel error messagin
+            std::string kernelNameExtrInfo;
+            llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+            kernelNameExtrInfoStr << "kernel: " << kInfo.funcName
+                                  << " (untracked)";
+
+            PrettyError(
+                {launchKernelExpr->getArg(1)->getBeginLoc(),
+                 launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(
+                     -1)},
+                raw_ostream::YELLOW, kernelNameExtrInfoStr.str());
           }
         }
 
@@ -221,6 +229,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
         ERR_BOLD_STR
             << "Unable to parse kernel argument position, skipping...\n";
+
         PrettyError({argPosExpr->getBeginLoc(),
                      setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
                     raw_ostream::YELLOW);
@@ -228,16 +237,39 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       uint64_t argPos = argPosEval.Val.getInt().getExtValue();
-      if (argsFinalised && argPos >= numArgs) {
-        std::string setKernelArgStr = ExprToStr(setArgExpr);
-        llvm::errs()
-            << sOpenHipify << sErr
-            << "Kernel argument call: " << setKernelArgStr
-            << " at position: " << setArgExpr->getExprLoc().printToString(*SM)
-            << " references argument at index " << argPos
-            << " while the maximum number of arguments for this kernel is "
-            << numArgs << "."
-            << "\n";
+      if (kDef && argPos >= kDef->argTypes.size()) {
+        ERR_BOLD_STR << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
+        ERR_BOLD_STR << "Argument index '" << argPos
+                     << "' out of range, Kernel '" << kInfo.funcName
+                     << "' accepts " << kDef->argTypes.size()
+                     << " parameters.\n";
+
+        // Extra kernel error messagin
+        std::string kernelNameExtrInfo;
+        llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+        kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " ("
+                              << kDef->fileName << ", l:" << kDef->defLine
+                              << " c:" << kDef->defCol << ")";
+
+        PrettyError({setArgExpr->getArg(0)->getBeginLoc(),
+                     setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+                    raw_ostream::RED, kernelNameExtrInfoStr.str());
+      } else if ((argsFinalised && argPos >= numArgs) ||
+                 (argPos >= args.size())) {
+        ERR_BOLD_STR << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
+        ERR_BOLD_STR << "Argument index '" << argPos
+                     << "' out of range, Kernel '" << kInfo.funcName
+                     << "' accepts at maximum " << numArgs << " parameters.\n";
+        // Extra kernel error messagin
+        std::string kernelNameExtrInfo;
+        llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+        kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " (untracked)";
+
+        PrettyError({setArgExpr->getArg(0)->getBeginLoc(),
+                     setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+                    raw_ostream::RED, kernelNameExtrInfoStr.str());
         return;
       }
 
@@ -261,21 +293,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Test if & is used to describe arg
       bool isAddrStripped = false;
       std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
-
-      // Track
-      if (argPos >= args.size()) {
-        // Extract text for whole of kernel
-        std::string setKernelArgStr = ExprToStr(setArgExpr);
-        llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
-                     << setKernelArgStr << "\' at location: "
-                     << setArgExpr->getExprLoc().printToString(*SM)
-                     << " references argument at index: " << argPos
-                     << " where kernel \'" << kInfo.funcName
-                     << "\' contains at maximum only " << args.size()
-                     << " argument(s)."
-                     << "\n";
-        return;
-      }
 
       args[argPos] = ArgInfo(kernelArgStr, isAddrStripped, toCast);
       argsUse[argPos] = true;
@@ -316,9 +333,9 @@ void OpenHipifyHostFA::EndSourceFileAction() {
               << "Kernel function called at a different scope from "
                  "initial use. This can result in inconsistent kernel launch "
                  "generation, removing and skipping...\n";
-          ERR_BOLD_STR << "Initial\n";
+          llvm::errs() << "Initial use:\n";
           PrettyError(baseScopeExpr->getSourceRange(), raw_ostream::GREEN);
-          ERR_BOLD_STR << "Current\n";
+          llvm::errs() << "Current use:\n";
           PrettyError(expr->getSourceRange(), raw_ostream::YELLOW);
           RemoveExprFromSource(expr);
           return false;
