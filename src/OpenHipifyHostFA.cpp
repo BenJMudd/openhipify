@@ -513,14 +513,19 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   // TODO: Support other cases than just vardecl, e.g. binary expression
   const BinaryOperator *binOp;
   binOp = callExprParIter->get<BinaryOperator>();
-  if (!binOp)
+  if (binOp)
     return ReplaceCreateBufferBinOp(callExpr, binOp);
 
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
-  if (!varDecl)
-    return false;
+  if (varDecl)
+    return ReplaceCreateBufferVarDecl(callExpr, varDecl);
 
+  return false;
+}
+
+bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
+    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl) {
   // Renaming the type from cl_mem -> void*
   SourceLocation typeBeginLoc = varDecl->getBeginLoc();
   std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
@@ -541,43 +546,15 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   //                                        ^
   SourceLocation equalLoc =
       LexForTokenLocation(varDecl->getBeginLoc(), clang::tok::equal);
-
-  // Range created from equal token and start of function call
-  // cl_mem mem = clCreateBuffer(...);
-  //            ^^^
-  CharSourceRange binaryExprRng =
-      CharSourceRange::getTokenRange(equalLoc, callExpr->getBeginLoc());
-
   std::string splitExpr;
   llvm::raw_string_ostream splitExprStr(splitExpr);
-  splitExprStr << HIP::EOL << HIP::MALLOC;
+  splitExprStr << HIP::EOL;
 
-  // Final replacement for splitting we change the function call as well
   // cl_mem mem = clCreateBuffer(...);
-  // cl_mem mem ; hipMalloc(...);
-  ct::Replacement binaryExprRepl(*SM, binaryExprRng, splitExprStr.str());
+  // cl_mem mem ; clCreateBuffer(...);
+  ct::Replacement binaryExprRepl(*SM, equalLoc, 1, splitExprStr.str());
   llvm::consumeError(m_replacements.add(binaryExprRepl));
-
-  // Argument replacement
-  // size of buffer argument extracted
-  const Expr *bufSize = callExpr->getArg(2);
-  std::string bufSizeExprStr = ExprToStr(bufSize);
-
-  // Name of mem variable extracted
-  std::string varName = varDecl->getNameAsString();
-
-  // Whole argument replacement
-  SourceLocation argStart = callExpr->getArg(0)->getExprLoc();
-  SourceLocation argEnd = callExpr->getEndLoc();
-  CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
-
-  std::string newArgs;
-  llvm::raw_string_ostream newArgsStr(newArgs);
-  newArgsStr << HIP::VOID_PTR_PTR_CAST << "&" << varName << ","
-             << bufSizeExprStr;
-  ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
-  llvm::consumeError(m_replacements.add(argsRepl));
-
+  ReplaceCreateBufferArguments(cBufExpr, varDecl->getNameAsString());
   return true;
 }
 
@@ -597,17 +574,49 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (clmemidx == std::string::npos)
     return false;
 
-  SourceLocation beginLoc = varDecl->getBeginLoc().getLocWithOffset(clmemidx);
-  auto varTypeIt = m_varTypeRenameLocs.find(beginLoc.getHashValue());
+  SourceLocation beginDeclLoc =
+      varDecl->getBeginLoc().getLocWithOffset(clmemidx);
+  auto varTypeIt = m_varTypeRenameLocs.find(beginDeclLoc.getHashValue());
   if (varTypeIt != m_varTypeRenameLocs.end()) {
     return true;
   }
 
-  m_varTypeRenameLocs.insert(beginLoc.getHashValue());
-  ct::Replacement typeRepl(*SM, beginLoc, OpenCL::CL_MEM.length(),
+  m_varTypeRenameLocs.insert(beginDeclLoc.getHashValue());
+  ct::Replacement typeRepl(*SM, beginDeclLoc, OpenCL::CL_MEM.length(),
                            HIP::VOID_PTR);
   llvm::consumeError(m_replacements.add(typeRepl));
+
+  // Replace LHS of binop
+  SourceLocation binOpBeginLoc = binOp->getLHS()->getExprLoc();
+  SourceLocation binOpEndLoc = binOp->getRHS()->getExprLoc();
+  CharSourceRange binOpRng =
+      CharSourceRange::getCharRange(binOpBeginLoc, binOpEndLoc);
+  ct::Replacement binOpRepl(*SM, binOpRng, "");
+  llvm::consumeError(m_replacements.add(binOpRepl));
+
+  std::string varName = varRef->getNameInfo().getName().getAsString();
+  ReplaceCreateBufferArguments(cBufExpr, varName);
   return true;
+}
+
+void OpenHipifyHostFA::ReplaceCreateBufferArguments(
+    const clang::CallExpr *callExpr, std::string varName) {
+  // size of buffer argument extracted
+  const Expr *bufSize = callExpr->getArg(2);
+  std::string bufSizeExprStr = ExprToStr(bufSize);
+
+  // Whole argument replacement
+  SourceLocation argStart = callExpr->getExprLoc();
+  SourceLocation argEnd = callExpr->getEndLoc();
+  // Can be shortened
+  CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+
+  std::string newArgs;
+  llvm::raw_string_ostream newArgsStr(newArgs);
+  newArgsStr << HIP::MALLOC << "(" << HIP::VOID_PTR_PTR_CAST << "&" << varName
+             << "," << bufSizeExprStr;
+  ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
+  llvm::consumeError(m_replacements.add(argsRepl));
 }
 
 // TODO: Handle error return for clCreateWriteBuffer

@@ -47,8 +47,12 @@ private:
 
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceCreateBufferVarDecl(const clang::CallExpr *cBufExpr,
+                                  const clang::VarDecl *varDecl);
   bool ReplaceCreateBufferBinOp(const clang::CallExpr *cBufExpr,
                                 const clang::BinaryOperator *binOp);
+  void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
+                                    std::string varName);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
   bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 
