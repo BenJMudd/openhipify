@@ -511,6 +511,11 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   const auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab parent of callExpr
   // TODO: Support other cases than just vardecl, e.g. binary expression
+  const BinaryOperator *binOp;
+  binOp = callExprParIter->get<BinaryOperator>();
+  if (!binOp)
+    return ReplaceCreateBufferBinOp(callExpr, binOp);
+
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
   if (!varDecl)
@@ -573,6 +578,35 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
+  return true;
+}
+
+bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
+    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp) {
+
+  const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
+  if (!varRef)
+    return false;
+
+  const ValueDecl *varDecl = varRef->getDecl();
+  if (!varDecl)
+    return false;
+
+  std::string varDeclStr = DeclToStr(varDecl);
+  size_t clmemidx = varDeclStr.find(OpenCL::CL_MEM);
+  if (clmemidx == std::string::npos)
+    return false;
+
+  SourceLocation beginLoc = varDecl->getBeginLoc().getLocWithOffset(clmemidx);
+  auto varTypeIt = m_varTypeRenameLocs.find(beginLoc.getHashValue());
+  if (varTypeIt != m_varTypeRenameLocs.end()) {
+    return true;
+  }
+
+  m_varTypeRenameLocs.insert(beginLoc.getHashValue());
+  ct::Replacement typeRepl(*SM, beginLoc, OpenCL::CL_MEM.length(),
+                           HIP::VOID_PTR);
+  llvm::consumeError(m_replacements.add(typeRepl));
   return true;
 }
 
@@ -677,6 +711,9 @@ bool OpenHipifyHostFA::HandleRedundantFunctionCall(
   } else {
     RemoveExprFromSource(callExpr);
   }
+
+  // Add removal for binary exporession
+
   return true;
 }
 

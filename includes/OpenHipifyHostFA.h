@@ -47,6 +47,8 @@ private:
 
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceCreateBufferBinOp(const clang::CallExpr *cBufExpr,
+                                const clang::BinaryOperator *binOp);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
   bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 
@@ -76,6 +78,7 @@ private:
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
 
+  std::set<unsigned> m_varTypeRenameLocs;
   ct::Replacements &m_replacements;
   const clang::SourceManager *SM;
   clang::ASTContext *AST;
