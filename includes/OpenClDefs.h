@@ -51,6 +51,7 @@ const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 // Host
 // Types
 const std::string CL_MEM_UNDERLYING = "_cl_mem";
+const std::string CL_MEM = "cl_mem";
 const std::string CL_PROGRAM = "_cl_program";
 const std::string CL_PLATFORM_ID = "_cl_platform_id";
 const std::string CL_DEVICE_ID = "_cl_device_id";

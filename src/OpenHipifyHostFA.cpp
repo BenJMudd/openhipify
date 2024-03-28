@@ -9,6 +9,7 @@ using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
 const StringRef B_VAR_DECL = "varDecl";
+#define ERR_BOLD_STR llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
@@ -56,6 +57,13 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     // Set after the first launch command has been processed
     bool argsFinalised = false;
 
+    // retrive kernel definition (if possible)
+    const KernelDefinition *kDef = nullptr;
+    auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
+    if (kFuncMapIter != m_kernelFuncMap.end()) {
+      kDef = &kFuncMapIter->second;
+    }
+
     auto StripAddrOfOp = [&](const Expr *expr,
                              bool &isAddrStripped) -> std::string {
       // Test if & is used to describe arg
@@ -76,17 +84,33 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
             if (!argsUse[i]) {
-              llvm::errs() << sOpenHipify;
+              ERR_BOLD_STR << sOpenHipify;
               llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
-              llvm::errs() << "Kernel launch accepts " << numArgs
+              ERR_BOLD_STR << "Kernel '" << kInfo.funcName
+                           << "' launch accepts " << numArgs
                            << " arguments, but argument at index " << i
                            << " has not been set."
                            << "\n";
+
+              // Extra kernel error messagin
+              std::string kernelNameExtrInfo;
+              llvm::raw_string_ostream kernelNameExtrInfoStr(
+                  kernelNameExtrInfo);
+              kernelNameExtrInfoStr << "kernel: " << kInfo.funcName;
+              if (kDef) {
+                // kernel def is included in translation pass
+                kernelNameExtrInfoStr << " (" << kDef->fileName
+                                      << ", l:" << kDef->defLine
+                                      << " c:" << kDef->defCol << ")";
+              } else {
+                kernelNameExtrInfoStr << " (untracked)";
+              }
+
               PrettyError(
                   {launchKernelExpr->getArg(1)->getBeginLoc(),
                    launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(
                        -1)},
-                  raw_ostream::RED);
+                  raw_ostream::RED, kernelNameExtrInfoStr.str());
               return false;
             }
           }
@@ -140,13 +164,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       launchKernelArgsStr << "0,0";
 
-      // retrive kernel definition
-      const KernelDefinition *kDef = nullptr;
-      auto kFuncMapIter = m_kernelFuncMap.find(kInfo.funcName);
-      if (kFuncMapIter != m_kernelFuncMap.end()) {
-        kDef = &kFuncMapIter->second;
-      }
-
       // Append extracted args
       for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
         launchKernelArgsStr << ",";
@@ -155,17 +172,25 @@ void OpenHipifyHostFA::EndSourceFileAction() {
             std::string typeToCast = kDef->argTypes[argIdx];
             launchKernelArgsStr << "(" << typeToCast << ")";
           } else {
-            llvm::errs() << sOpenHipify << sWarn
-                         << "Unable to generate cast for cl_mem argument \'"
-                         << args[argIdx].argStr
-                         << "\' used in kernel launch function at location: "
-                         << launchKernelExpr->getBeginLoc().printToString(*SM)
-                         << " due to not tracking the original kernel "
-                            "definition. Include the definition for kernel: \'"
+            ERR_BOLD_STR << sOpenHipify;
+            llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+            ERR_BOLD_STR << "Unable to generate cast for cl_mem argument '"
+                         << args[argIdx].argStr << "' for kernel '"
                          << kInfo.funcName
-                         << "\' in the "
-                            "compilation process to generate cast."
-                         << "\n";
+                         << "' during launch. Include the definition in the "
+                            "transpilation "
+                            "process to generate cast.\n";
+            // Extra kernel error messagin
+            std::string kernelNameExtrInfo;
+            llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+            kernelNameExtrInfoStr << "kernel: " << kInfo.funcName
+                                  << " (untracked)";
+
+            PrettyError(
+                {launchKernelExpr->getArg(1)->getBeginLoc(),
+                 launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(
+                     -1)},
+                raw_ostream::YELLOW, kernelNameExtrInfoStr.str());
           }
         }
 
@@ -200,10 +225,11 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       const Expr *argPosExpr = setArgExpr->getArg(1);
       Expr::EvalResult argPosEval;
       if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
-        llvm::errs() << sOpenHipify;
+        ERR_BOLD_STR << sOpenHipify;
         llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
-        llvm::errs()
+        ERR_BOLD_STR
             << "Unable to parse kernel argument position, skipping...\n";
+
         PrettyError({argPosExpr->getBeginLoc(),
                      setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
                     raw_ostream::YELLOW);
@@ -211,16 +237,39 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       uint64_t argPos = argPosEval.Val.getInt().getExtValue();
-      if (argsFinalised && argPos >= numArgs) {
-        std::string setKernelArgStr = ExprToStr(setArgExpr);
-        llvm::errs()
-            << sOpenHipify << sErr
-            << "Kernel argument call: " << setKernelArgStr
-            << " at position: " << setArgExpr->getExprLoc().printToString(*SM)
-            << " references argument at index " << argPos
-            << " while the maximum number of arguments for this kernel is "
-            << numArgs << "."
-            << "\n";
+      if (kDef && argPos >= kDef->argTypes.size()) {
+        ERR_BOLD_STR << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
+        ERR_BOLD_STR << "Argument index '" << argPos
+                     << "' out of range, Kernel '" << kInfo.funcName
+                     << "' accepts " << kDef->argTypes.size()
+                     << " parameters.\n";
+
+        // Extra kernel error messagin
+        std::string kernelNameExtrInfo;
+        llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+        kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " ("
+                              << kDef->fileName << ", l:" << kDef->defLine
+                              << " c:" << kDef->defCol << ")";
+
+        PrettyError({setArgExpr->getArg(0)->getBeginLoc(),
+                     setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+                    raw_ostream::RED, kernelNameExtrInfoStr.str());
+      } else if ((argsFinalised && argPos >= numArgs) ||
+                 (argPos >= args.size())) {
+        ERR_BOLD_STR << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::RED, true) << sErr;
+        ERR_BOLD_STR << "Argument index '" << argPos
+                     << "' out of range, Kernel '" << kInfo.funcName
+                     << "' accepts at maximum " << numArgs << " parameters.\n";
+        // Extra kernel error messagin
+        std::string kernelNameExtrInfo;
+        llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+        kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " (untracked)";
+
+        PrettyError({setArgExpr->getArg(0)->getBeginLoc(),
+                     setArgExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+                    raw_ostream::RED, kernelNameExtrInfoStr.str());
         return;
       }
 
@@ -244,21 +293,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Test if & is used to describe arg
       bool isAddrStripped = false;
       std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
-
-      // Track
-      if (argPos >= args.size()) {
-        // Extract text for whole of kernel
-        std::string setKernelArgStr = ExprToStr(setArgExpr);
-        llvm::errs() << sOpenHipify << sErr << "clSetKernelArg expression: \'"
-                     << setKernelArgStr << "\' at location: "
-                     << setArgExpr->getExprLoc().printToString(*SM)
-                     << " references argument at index: " << argPos
-                     << " where kernel \'" << kInfo.funcName
-                     << "\' contains at maximum only " << args.size()
-                     << " argument(s)."
-                     << "\n";
-        return;
-      }
 
       args[argPos] = ArgInfo(kernelArgStr, isAddrStripped, toCast);
       argsUse[argPos] = true;
@@ -293,16 +327,17 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         auto exprScopeNode = AST->getParents(*(expr->IgnoreCasts()));
         auto *exprScopeStmt = exprScopeNode.begin()->get<Stmt>();
         if (exprScopeStmt != baseScopeStmt) {
-          llvm::errs() << sOpenHipify;
+          ERR_BOLD_STR << sOpenHipify;
           llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
-          llvm::errs() << "Kernel reference function defined at a different "
-                          "scope than the initial reference.\n";
-          llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
-              << "Initial\n";
+          ERR_BOLD_STR
+              << "Kernel function called at a different scope from "
+                 "initial use. This can result in inconsistent kernel launch "
+                 "generation, removing and skipping...\n";
+          llvm::errs() << "Initial use:\n";
           PrettyError(baseScopeExpr->getSourceRange(), raw_ostream::GREEN);
-          llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
-              << "Current\n";
+          llvm::errs() << "Current use:\n";
           PrettyError(expr->getSourceRange(), raw_ostream::YELLOW);
+          RemoveExprFromSource(expr);
           return false;
         }
 
@@ -476,6 +511,11 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   const auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab parent of callExpr
   // TODO: Support other cases than just vardecl, e.g. binary expression
+  const BinaryOperator *binOp;
+  binOp = callExprParIter->get<BinaryOperator>();
+  if (!binOp)
+    return ReplaceCreateBufferBinOp(callExpr, binOp);
+
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
   if (!varDecl)
@@ -538,6 +578,35 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
+  return true;
+}
+
+bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
+    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp) {
+
+  const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
+  if (!varRef)
+    return false;
+
+  const ValueDecl *varDecl = varRef->getDecl();
+  if (!varDecl)
+    return false;
+
+  std::string varDeclStr = DeclToStr(varDecl);
+  size_t clmemidx = varDeclStr.find(OpenCL::CL_MEM);
+  if (clmemidx == std::string::npos)
+    return false;
+
+  SourceLocation beginLoc = varDecl->getBeginLoc().getLocWithOffset(clmemidx);
+  auto varTypeIt = m_varTypeRenameLocs.find(beginLoc.getHashValue());
+  if (varTypeIt != m_varTypeRenameLocs.end()) {
+    return true;
+  }
+
+  m_varTypeRenameLocs.insert(beginLoc.getHashValue());
+  ct::Replacement typeRepl(*SM, beginLoc, OpenCL::CL_MEM.length(),
+                           HIP::VOID_PTR);
+  llvm::consumeError(m_replacements.add(typeRepl));
   return true;
 }
 
@@ -642,6 +711,9 @@ bool OpenHipifyHostFA::HandleRedundantFunctionCall(
   } else {
     RemoveExprFromSource(callExpr);
   }
+
+  // Add removal for binary exporession
+
   return true;
 }
 
@@ -778,7 +850,8 @@ OpenHipifyHostFA::LexForTokenLocation(clang::SourceLocation beginLoc,
 }
 
 void OpenHipifyHostFA::PrettyError(clang::SourceRange loc,
-                                   raw_ostream::Colors underlineCol) {
+                                   raw_ostream::Colors underlineCol,
+                                   std::string extraInfo) {
   StringRef fileName = getCurrentFile();
   fileName.consume_front("/tmp/");
   size_t index = fileName.rfind('-');
@@ -825,6 +898,10 @@ void OpenHipifyHostFA::PrettyError(clang::SourceRange loc,
   }
   for (unsigned i = exprStartCol; i < exprEndCol; i++) {
     llvm::WithColor(llvm::errs(), underlineCol, true) << "^";
+  }
+
+  if (extraInfo.size() > 0) {
+    llvm::WithColor(llvm::errs(), underlineCol, true) << " <--- " << extraInfo;
   }
 
   llvm::errs() << "\n";

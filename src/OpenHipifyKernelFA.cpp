@@ -183,8 +183,13 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   }
 
   // TODO: Handle error where there are 2 kernels of the same name
+  unsigned int lineNumber =
+      srcManager.getSpellingLineNumber(funcDecl.getTypeSpecStartLoc());
+  unsigned int colNumber =
+      srcManager.getSpellingColumnNumber(funcDecl.getTypeSpecStartLoc());
   m_kernelFuncMap.insert(
-      {funcDecl.getName().str(), {funcDeclStr, fileName.str(), funcArgs}});
+      {funcDecl.getName().str(),
+       {funcDeclStr, fileName.str(), lineNumber, colNumber, funcArgs}});
 }
 
 void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
