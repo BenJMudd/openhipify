@@ -60,6 +60,9 @@ private:
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
   bool TrackKernelLaunch(const clang::CallExpr *callExpr);
   bool TrackKernelCreate(const clang::CallExpr *callExpr);
+  bool TrackKernelCreateBinop(const clang::CallExpr *callExpr,
+                              const clang::BinaryOperator *binOp,
+                              std::string kernelName);
 
   bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
                                 size_t argIndex,

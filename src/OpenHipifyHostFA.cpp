@@ -560,7 +560,6 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
 
 bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
     const CallExpr *cBufExpr, const clang::BinaryOperator *binOp) {
-
   const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
   if (!varRef)
     return false;
@@ -577,14 +576,12 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   SourceLocation beginDeclLoc =
       varDecl->getBeginLoc().getLocWithOffset(clmemidx);
   auto varTypeIt = m_varTypeRenameLocs.find(beginDeclLoc.getHashValue());
-  if (varTypeIt != m_varTypeRenameLocs.end()) {
-    return true;
+  if (varTypeIt == m_varTypeRenameLocs.end()) {
+    m_varTypeRenameLocs.insert(beginDeclLoc.getHashValue());
+    ct::Replacement typeRepl(*SM, beginDeclLoc, OpenCL::CL_MEM.length(),
+                             HIP::VOID_PTR);
+    llvm::consumeError(m_replacements.add(typeRepl));
   }
-
-  m_varTypeRenameLocs.insert(beginDeclLoc.getHashValue());
-  ct::Replacement typeRepl(*SM, beginDeclLoc, OpenCL::CL_MEM.length(),
-                           HIP::VOID_PTR);
-  llvm::consumeError(m_replacements.add(typeRepl));
 
   // Replace LHS of binop
   SourceLocation binOpBeginLoc = binOp->getLHS()->getExprLoc();
@@ -717,12 +714,17 @@ bool OpenHipifyHostFA::HandleRedundantFunctionCall(
   const VarDecl *varDecl = callExprParIter->get<VarDecl>();
   if (varDecl) {
     RemoveDeclFromSource(varDecl);
-  } else {
-    RemoveExprFromSource(callExpr);
+    return true;
   }
 
-  // Add removal for binary exporession
+  const BinaryOperator *binOp;
+  binOp = callExprParIter->get<BinaryOperator>();
+  if (binOp) {
+    RemoveExprFromSource(binOp);
+    return true;
+  }
 
+  RemoveExprFromSource(callExpr);
   return true;
 }
 
@@ -747,12 +749,6 @@ bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
 }
 
 bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
-  auto callExprParIter = AST->getParents(*callExpr).begin();
-  // Grab kernel declaration
-  const VarDecl *kernelDecl = callExprParIter->get<VarDecl>();
-  if (!kernelDecl)
-    return false;
-
   const Expr *kernelNameExpr = callExpr->getArg(1)->IgnoreCasts();
   const clang::StringLiteral *kernelName =
       dyn_cast<clang::StringLiteral>(kernelNameExpr);
@@ -765,13 +761,40 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
   }
 
   std::string kernelStr(kernelName->getString());
-  // TODO: involve tracking with cl_program to resolve ambiguity if two
-  // kernels have the same name in different files
 
-  m_kernelTracker.InsertName(kernelDecl, kernelStr);
+  // Grab kernel declaration
+  auto callExprParIter = AST->getParents(*callExpr).begin();
+  const VarDecl *kernelDecl = callExprParIter->get<VarDecl>();
+  if (kernelDecl) {
+    m_kernelTracker.InsertName(kernelDecl, kernelStr);
+    RemoveDeclFromSource(kernelDecl);
+  }
 
-  // Remove kernel create from source
-  RemoveDeclFromSource(kernelDecl);
+  const BinaryOperator *binOp;
+  binOp = callExprParIter->get<BinaryOperator>();
+  if (binOp)
+    return TrackKernelCreateBinop(callExpr, binOp, kernelStr);
+
+  return false;
+}
+
+bool OpenHipifyHostFA::TrackKernelCreateBinop(
+    const clang::CallExpr *callExpr, const clang::BinaryOperator *binOp,
+    std::string kernelName) {
+  const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
+  if (!varRef)
+    return false;
+
+  const ValueDecl *valueDecl = varRef->getDecl();
+  if (!valueDecl)
+    return false;
+
+  const VarDecl *kernelDecl = valueDecl->getPotentiallyDecomposedVarDecl();
+  if (!kernelDecl)
+    return false;
+
+  m_kernelTracker.InsertName(kernelDecl, kernelName);
+  RemoveExprFromSource(binOp);
   return true;
 }
 
