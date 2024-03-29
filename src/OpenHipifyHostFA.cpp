@@ -9,6 +9,9 @@ using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
 const StringRef B_VAR_DECL = "varDecl";
+const StringRef B_DECL_STMT_CULL = "declStmt";
+const StringRef B_VAR_DECL_CULL = "varDeclCull";
+const StringRef B_BIN_OP_REF = "binOpRef";
 #define ERR_BOLD_STR llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
 
 std::unique_ptr<ASTConsumer>
@@ -22,7 +25,19 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
-  m_finder->addMatcher(varDecl(isExpansionInMainFile()).bind(B_VAR_DECL), this);
+  m_finder->addMatcher(
+      binaryOperator(isAssignmentOperator(), isExpansionInMainFile(),
+                     hasLHS(declRefExpr(hasType(asString(OpenCL::CL_CONTEXT)))))
+          .bind(B_BIN_OP_REF),
+      this);
+
+  m_finder->addMatcher(
+      declStmt(isExpansionInMainFile(),
+               hasDescendant(
+                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
+                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
+          .bind(B_DECL_STMT_CULL),
+      this);
 
   return m_finder->newASTConsumer();
 }
@@ -420,6 +435,12 @@ void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 
   if (VariableDeclaration(res))
     return;
+
+  if (DeclarationStmt(res))
+    return;
+
+  if (BinaryOpDeclRef(res))
+    return;
 }
 
 bool OpenHipifyHostFA::FunctionCall(
@@ -464,25 +485,57 @@ bool OpenHipifyHostFA::FunctionCall(
 
 bool OpenHipifyHostFA::VariableDeclaration(
     const ASTMatch::MatchFinder::MatchResult &res) {
-  const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL);
+  // const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL);
+  // if (!varDecl)
+  //   return false;
+
+  // const IdentifierInfo *typeIdentifier =
+  //     varDecl->getType().getBaseTypeIdentifier();
+  // if (!typeIdentifier)
+  //   return false;
+
+  // std::string varType(typeIdentifier->getName());
+  // auto iter = OpenCL::CL_TYPES.find(varType);
+  // if (iter != OpenCL::CL_TYPES.end()) {
+  //   // Remove statement containing redundant opencl types
+  //   // TODO: This is obviously an awful way of doing this, maybe do some
+  //   // analysis???
+  //   llvm::errs() << sOpenHipify << "Removing...";
+  //   PrettyError(varDecl->getSourceRange(), raw_ostream::YELLOW);
+  //   RemoveDeclFromSource(varDecl);
+  //   return true;
+  // }
+  // return false;
+  const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL_CULL);
   if (!varDecl)
     return false;
+  // look for uses in matcher maybe?
+  return true;
+}
 
-  const IdentifierInfo *typeIdentifier =
-      varDecl->getType().getBaseTypeIdentifier();
-  if (!typeIdentifier)
+bool OpenHipifyHostFA::DeclarationStmt(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const DeclStmt *declToCull = res.Nodes.getNodeAs<DeclStmt>(B_DECL_STMT_CULL);
+  if (!declToCull) {
     return false;
-
-  std::string varType(typeIdentifier->getName());
-  auto iter = OpenCL::CL_TYPES.find(varType);
-  if (iter != OpenCL::CL_TYPES.end()) {
-    // Remove statement containing redundant opencl types
-    // TODO: This is obviously an awful way of doing this, maybe do some
-    // analysis???
-    RemoveDeclFromSource(varDecl);
-    return true;
   }
-  return false;
+
+  llvm::errs() << sOpenHipify << "Found stmt to cull\n";
+  RemoveStmtRangeFromSource(declToCull->getSourceRange());
+  return true;
+}
+
+bool OpenHipifyHostFA::BinaryOpDeclRef(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const clang::BinaryOperator *binOp =
+      res.Nodes.getNodeAs<clang::BinaryOperator>(B_BIN_OP_REF);
+  if (!binOp) {
+    // RemoveStmtRangeFromSource(declToCull->getSourceRange());
+    return false;
+  }
+
+  RemoveExprFromSource(binOp);
+  return true;
 }
 
 bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
