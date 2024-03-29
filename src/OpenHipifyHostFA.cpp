@@ -530,7 +530,6 @@ bool OpenHipifyHostFA::BinaryOpDeclRef(
   const clang::BinaryOperator *binOp =
       res.Nodes.getNodeAs<clang::BinaryOperator>(B_BIN_OP_REF);
   if (!binOp) {
-    // RemoveStmtRangeFromSource(declToCull->getSourceRange());
     return false;
   }
 
