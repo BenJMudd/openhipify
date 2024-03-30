@@ -40,10 +40,6 @@ private:
                          clang::CharSourceRange funcNameRng,
                          HIP::AUX_FUNC_ID func);
 
-  bool ReplaceAS_TYPE(const clang::CallExpr &callExpr,
-                      const ASTMatch::MatchFinder::MatchResult &res,
-                      OpenCL::KernelFuncs funcIdent);
-
   bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,
                                const ASTMatch::MatchFinder::MatchResult &res,

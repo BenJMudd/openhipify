@@ -1,5 +1,7 @@
 #include "OpenHipifyKernelFA.h"
 #include "utils/Defs.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "llvm/Support/WithColor.h"
 
@@ -122,9 +124,81 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
 
   // wrap whole expr in brackets
   // replace function call name
+  ParenExpr *parenExpr = dyn_cast<ParenExpr>(asTypeExpr->getSrcExpr());
+  if (!parenExpr) {
+    llvm::errs() << "Something wrong!\n";
+    return false;
+  }
+  // begin loc of func call is asTypeExpr->getBeginLoc() // location of start of
+  // inner brackets parenExpr->getSubExpr()->getExprLoc()
+  // <- spelling loc
+  // location previously with 1 less is parenExpr->getSubExpr()->getBeginLoc()
+  // <- spelling loc
 
-  llvm::errs() << sOpenHipify << "Found as type expr!\n";
+  // location at end (minus 2 for some reason) is
+  // parenExpr->getSubExpr->getEndLoc()
+  const Expr *subExpr = parenExpr->getSubExpr();
+  SourceLocation bSub = subExpr->getBeginLoc();
+  SourceLocation eSub = subExpr->getEndLoc();
 
+  FullSourceLoc fbSub(bSub, *SM);
+  FullSourceLoc feSub(eSub, *SM);
+
+  // End location points to the wrong location, we lex for it manually here
+  size_t bracketIdx = 0;
+  SourceLocation typeExprStart = SM->getExpansionLoc(asTypeExpr->getBeginLoc());
+  SourceLocation typeExprEnd = SM->getExpansionLoc(asTypeExpr->getEndLoc());
+  const char *startBuf = SM->getCharacterData(typeExprEnd);
+  const char *fileEndBuf =
+      SM->getCharacterData(SM->getLocForEndOfFile(SM->getMainFileID()));
+  Lexer lex(typeExprEnd, clang::LangOptions(), startBuf, startBuf, fileEndBuf);
+
+  clang::Token tok;
+  SourceLocation rParenLoc;
+  SourceLocation lParenLoc;
+  lex.LexFromRawLexer(tok);
+  // TODO: Better escape clause
+  while (1) {
+    if (tok.is(clang::tok::r_paren)) {
+      bracketIdx--;
+      if (bracketIdx == 0) {
+        rParenLoc = tok.getLocation();
+        break;
+      }
+    } else if (tok.is(clang::tok::l_paren)) {
+      if (bracketIdx == 0) {
+        lParenLoc = tok.getLocation();
+      }
+      bracketIdx++;
+    }
+
+    lex.LexFromRawLexer(tok);
+  }
+  // range of inside expression
+  // PrettyError({fbSub.getSpellingLoc(), rParenLoc}, raw_ostream::RED);
+
+  CharSourceRange callCharRng =
+      CharSourceRange::getTokenRange(typeExprStart, lParenLoc);
+
+  clang::SmallString<40> castStr;
+  llvm::raw_svector_ostream castOS(castStr);
+  castOS << "((";
+  QualType castType = asTypeExpr->getType();
+  std::string typeStr = castType.getAsString();
+  if (typeStr == "float") {
+    castOS << "float";
+  } else if (typeStr == "double") {
+    castOS << "double";
+  } else {
+    llvm::errs() << sOpenHipify << sErr << "Cannot deduce type.\n";
+    return false; // TODO: Better err msg
+  }
+  castOS << ")(";
+
+  ct::Replacement callRepl = ct::Replacement(*SM, callCharRng, castOS.str());
+  llvm::consumeError(m_replacements.add(callRepl));
+  ct::Replacement parenRepl = ct::Replacement(*SM, rParenLoc, 0, ")");
+  llvm::consumeError(m_replacements.add(parenRepl));
   return true;
 }
 
@@ -154,10 +228,6 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   } break;
   case OpenCL::KernelFuncs::BARRIER: {
     ReplaceBARRIER(*callExpr, res);
-  } break;
-  case OpenCL::KernelFuncs::AS_FLOAT:
-  case OpenCL::KernelFuncs::AS_DOUBLE: {
-    ReplaceAS_TYPE(*callExpr, res, funcSearch->second);
   } break;
   }
 
@@ -234,17 +304,6 @@ void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
   llvm::consumeError(m_replacements.add(replacementName));
   m_auxFunctions.insert(func);
   return;
-}
-
-bool OpenHipifyKernelFA::ReplaceAS_TYPE(
-    const clang::CallExpr &callExpr,
-    const ASTMatch::MatchFinder::MatchResult &res,
-    OpenCL::KernelFuncs funcIdent) {
-  // wrap entire call in brackets
-  // replace actual call with cast
-  llvm::errs() << sOpenHipify << "Found cast expression\n";
-
-  return true;
 }
 
 bool OpenHipifyKernelFA::ReplaceBARRIER(

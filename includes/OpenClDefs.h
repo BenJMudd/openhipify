@@ -27,9 +27,7 @@ enum class KernelFuncs : uint32_t {
   GET_LOCAL_ID,
   GET_GROUP_ID,
   GET_LOCAL_SIZE,
-  BARRIER,
-  AS_FLOAT,
-  AS_DOUBLE
+  BARRIER
 };
 
 const std::string GET_GLOBAL_ID = "get_global_id";
@@ -39,17 +37,12 @@ const std::string GET_LOCAL_SIZE = "get_local_size";
 
 const std::string BARRIER = "barrier";
 
-const std::string AS_FLOAT = "as_float";
-const std::string AS_DOUBLE = "as_double";
-
 const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
     {GET_GLOBAL_ID, KernelFuncs::GET_GLOBAL_ID},
     {GET_LOCAL_ID, KernelFuncs::GET_LOCAL_ID},
     {GET_GROUP_ID, KernelFuncs::GET_GROUP_ID},
     {GET_LOCAL_SIZE, KernelFuncs::GET_LOCAL_SIZE},
-    {BARRIER, KernelFuncs::BARRIER},
-    {AS_FLOAT, KernelFuncs::AS_FLOAT},
-    {AS_DOUBLE, KernelFuncs::AS_DOUBLE}};
+    {BARRIER, KernelFuncs::BARRIER}};
 
 // definitions
 const unsigned char CLK_LOCAL_MEM_FENCE = 0x1;
