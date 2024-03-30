@@ -174,8 +174,6 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
 
     lex.LexFromRawLexer(tok);
   }
-  // range of inside expression
-  // PrettyError({fbSub.getSpellingLoc(), rParenLoc}, raw_ostream::RED);
 
   CharSourceRange callCharRng =
       CharSourceRange::getTokenRange(typeExprStart, lParenLoc);
