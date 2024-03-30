@@ -25,16 +25,25 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  // Removal of redundant assignment expresion
   m_finder->addMatcher(
-      binaryOperator(isAssignmentOperator(), isExpansionInMainFile(),
-                     hasLHS(declRefExpr(hasType(asString(OpenCL::CL_CONTEXT)))))
+      binaryOperator(
+          isAssignmentOperator(), isExpansionInMainFile(),
+          hasLHS(declRefExpr(anyOf(hasType(asString(OpenCL::CL_PROGRAM)),
+                                   hasType(asString(OpenCL::CL_DEVICE_ID)),
+                                   hasType(asString(OpenCL::CL_CONTEXT))))))
+
           .bind(B_BIN_OP_REF),
       this);
 
+  // removal of redundant variable declarations
   m_finder->addMatcher(
       declStmt(isExpansionInMainFile(),
                hasDescendant(
                    varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
+                                 hasType(asString(OpenCL::CL_PROGRAM)),
+                                 hasType(asString(OpenCL::CL_KERNEL)),
+                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
                                  hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
           .bind(B_DECL_STMT_CULL),
       this);
@@ -520,7 +529,6 @@ bool OpenHipifyHostFA::DeclarationStmt(
     return false;
   }
 
-  llvm::errs() << sOpenHipify << "Found stmt to cull\n";
   RemoveStmtRangeFromSource(declToCull->getSourceRange());
   return true;
 }

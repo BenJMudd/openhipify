@@ -52,12 +52,12 @@ const unsigned char CLK_GLOBAL_MEM_FENCE = 0x2;
 // Types
 const std::string CL_MEM_UNDERLYING = "_cl_mem";
 const std::string CL_MEM = "cl_mem";
-const std::string CL_PROGRAM = "_cl_program";
+const std::string CL_PROGRAM = "cl_program";
 const std::string CL_PLATFORM_ID = "_cl_platform_id";
-const std::string CL_DEVICE_ID = "_cl_device_id";
+const std::string CL_DEVICE_ID = "cl_device_id";
+const std::string CL_KERNEL = "cl_kernel";
 const std::string CL_CONTEXT = "cl_context";
 const std::string CL_COMMAND_QUEUE = "cl_command_queue";
-const std::set<std::string> CL_TYPES{CL_PROGRAM, CL_PLATFORM_ID, CL_DEVICE_ID};
 
 // Functions
 enum class HostFuncs {
