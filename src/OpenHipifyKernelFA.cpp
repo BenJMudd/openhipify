@@ -122,21 +122,12 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
   if (!asTypeExpr)
     return false;
 
-  // wrap whole expr in brackets
-  // replace function call name
   ParenExpr *parenExpr = dyn_cast<ParenExpr>(asTypeExpr->getSrcExpr());
   if (!parenExpr) {
     llvm::errs() << "Something wrong!\n";
     return false;
   }
-  // begin loc of func call is asTypeExpr->getBeginLoc() // location of start of
-  // inner brackets parenExpr->getSubExpr()->getExprLoc()
-  // <- spelling loc
-  // location previously with 1 less is parenExpr->getSubExpr()->getBeginLoc()
-  // <- spelling loc
 
-  // location at end (minus 2 for some reason) is
-  // parenExpr->getSubExpr->getEndLoc()
   const Expr *subExpr = parenExpr->getSubExpr();
   SourceLocation bSub = subExpr->getBeginLoc();
   SourceLocation eSub = subExpr->getEndLoc();
