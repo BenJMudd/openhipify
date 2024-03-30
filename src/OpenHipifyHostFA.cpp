@@ -342,14 +342,14 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // No previous arguments processed, record the current scope
       // for the kernel
       if (!baseScopeStmt) {
-        auto argScopeNode = AST->getParents(*((*argIter)->IgnoreCasts()));
-        baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+        baseScopeStmt = SearchParentScope(*argIter);
+        // auto argScopeNode = AST->getParents(*((*argIter)->IgnoreCasts()));
+        // baseScopeStmt = argScopeNode.begin()->get<Stmt>();
         baseScopeExpr = *argIter;
       }
 
       auto CheckScope = [&](const CallExpr *expr) -> bool {
-        auto exprScopeNode = AST->getParents(*(expr->IgnoreCasts()));
-        auto *exprScopeStmt = exprScopeNode.begin()->get<Stmt>();
+        auto *exprScopeStmt = SearchParentScope(expr);
         if (exprScopeStmt != baseScopeStmt) {
           ERR_BOLD_STR << sOpenHipify;
           llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
@@ -916,6 +916,20 @@ void OpenHipifyHostFA::RemoveStmtRangeFromSource(SourceRange rng) {
       CharSourceRange::getCharRange(rng.getBegin(), exprEndLoc);
   ct::Replacement exprRepl(*SM, fullExprRng, "");
   llvm::consumeError(m_replacements.add(exprRepl));
+}
+
+const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
+  const Stmt *cur = base;
+  while (cur) {
+    auto argScopeNode = AST->getParents(*cur);
+    const Stmt *baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+    if (auto *baseScope = dyn_cast<CompoundStmt>(baseScopeStmt)) {
+      return baseScope;
+    }
+    cur = baseScopeStmt;
+  }
+
+  return nullptr;
 }
 
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
