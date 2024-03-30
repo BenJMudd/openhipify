@@ -219,7 +219,6 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
     ReplaceBARRIER(*callExpr, res);
   } break;
   }
-
   return true;
 }
 

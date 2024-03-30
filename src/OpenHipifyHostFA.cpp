@@ -485,6 +485,13 @@ bool OpenHipifyHostFA::FunctionCall(
     return true;
   }
 
+  iter = OpenCL::HOST_GENERIC_FUNCS.find(funcSearch->second);
+  if (iter != OpenCL::HOST_GENERIC_FUNCS.end()) {
+    // generic function found
+    HandleGenericFunctionCall(callExpr, *iter);
+    return true;
+  }
+
   iter = OpenCL::HOST_REDUNDANT_FUNCS.find(funcSearch->second);
   if (iter != OpenCL::HOST_REDUNDANT_FUNCS.end()) {
     // Kernel related function found
@@ -769,6 +776,11 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   } break;
   }
 
+  return false;
+}
+
+bool OpenHipifyHostFA::HandleGenericFunctionCall(
+    const clang::CallExpr *callExpr, OpenCL::HostFuncs func) {
   return false;
 }
 

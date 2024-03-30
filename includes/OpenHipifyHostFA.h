@@ -45,6 +45,8 @@ private:
                                 OpenCL::HostFuncs func);
   bool HandleKernelFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
+  bool HandleGenericFunctionCall(const clang::CallExpr *callExpr,
+                                 OpenCL::HostFuncs func);
   bool HandleRedundantFunctionCall(const clang::CallExpr *callExpr);
 
   // Memory function call replacements
