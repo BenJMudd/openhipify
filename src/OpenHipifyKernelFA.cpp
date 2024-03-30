@@ -7,6 +7,7 @@ using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
 const StringRef B_KERNEL_DECL = "kernelFuncDecl";
+const StringRef B_AS_TYPE_EXPR = "asTypeExpr";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyKernelFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
@@ -16,6 +17,8 @@ OpenHipifyKernelFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  m_finder->addMatcher(asTypeExpr(isExpansionInMainFile()).bind(B_AS_TYPE_EXPR),
+                       this);
   m_finder->addMatcher(
       functionDecl(isExpansionInMainFile(), hasAttr(attr::OpenCLKernel))
           .bind(B_KERNEL_DECL),
@@ -29,6 +32,9 @@ void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
     return;
 
   if (OpenCLKernelFunctionDecl(res))
+    return;
+
+  if (OpenCLAsTypeExpr(res))
     return;
 }
 
@@ -105,6 +111,18 @@ bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
   return true;
 }
 
+bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const AsTypeExpr *asTypeExpr =
+      res.Nodes.getNodeAs<AsTypeExpr>(B_AS_TYPE_EXPR);
+  if (!asTypeExpr)
+    return false;
+
+  llvm::errs() << sOpenHipify << "Found as type expr!\n";
+
+  return true;
+}
+
 bool OpenHipifyKernelFA::OpenCLFunctionCall(
     const ASTMatch::MatchFinder::MatchResult &res) {
   const CallExpr *callExpr = res.Nodes.getNodeAs<CallExpr>(B_CALL_EXPR);
@@ -132,9 +150,13 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   case OpenCL::KernelFuncs::BARRIER: {
     ReplaceBARRIER(*callExpr, res);
   } break;
+  case OpenCL::KernelFuncs::AS_FLOAT:
+  case OpenCL::KernelFuncs::AS_DOUBLE: {
+    ReplaceAS_TYPE(*callExpr, res, funcSearch->second);
+  } break;
   }
 
-  return false;
+  return true;
 }
 
 void OpenHipifyKernelFA::AppendKernelFuncMap(
@@ -207,6 +229,17 @@ void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
   llvm::consumeError(m_replacements.add(replacementName));
   m_auxFunctions.insert(func);
   return;
+}
+
+bool OpenHipifyKernelFA::ReplaceAS_TYPE(
+    const clang::CallExpr &callExpr,
+    const ASTMatch::MatchFinder::MatchResult &res,
+    OpenCL::KernelFuncs funcIdent) {
+  // wrap entire call in brackets
+  // replace actual call with cast
+  llvm::errs() << sOpenHipify << "Found cast expression\n";
+
+  return true;
 }
 
 bool OpenHipifyKernelFA::ReplaceBARRIER(
