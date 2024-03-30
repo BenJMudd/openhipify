@@ -1,21 +1,28 @@
 #include "OpenHipifyKernelFA.h"
 #include "utils/Defs.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "llvm/Support/WithColor.h"
 
 using namespace ASTMatch;
 using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
 const StringRef B_KERNEL_DECL = "kernelFuncDecl";
+const StringRef B_AS_TYPE_EXPR = "asTypeExpr";
 
 std::unique_ptr<ASTConsumer>
 OpenHipifyKernelFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder.reset(new ASTMatch::MatchFinder);
+  SM = &getCompilerInstance().getSourceManager();
 
   // case matching
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  m_finder->addMatcher(asTypeExpr(isExpansionInMainFile()).bind(B_AS_TYPE_EXPR),
+                       this);
   m_finder->addMatcher(
       functionDecl(isExpansionInMainFile(), hasAttr(attr::OpenCLKernel))
           .bind(B_KERNEL_DECL),
@@ -29,6 +36,9 @@ void OpenHipifyKernelFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
     return;
 
   if (OpenCLKernelFunctionDecl(res))
+    return;
+
+  if (OpenCLAsTypeExpr(res))
     return;
 }
 
@@ -105,6 +115,82 @@ bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
   return true;
 }
 
+bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const AsTypeExpr *asTypeExpr =
+      res.Nodes.getNodeAs<AsTypeExpr>(B_AS_TYPE_EXPR);
+  if (!asTypeExpr)
+    return false;
+
+  ParenExpr *parenExpr = dyn_cast<ParenExpr>(asTypeExpr->getSrcExpr());
+  if (!parenExpr) {
+    llvm::errs() << "Something wrong!\n";
+    return false;
+  }
+
+  const Expr *subExpr = parenExpr->getSubExpr();
+  SourceLocation bSub = subExpr->getBeginLoc();
+  SourceLocation eSub = subExpr->getEndLoc();
+
+  FullSourceLoc fbSub(bSub, *SM);
+  FullSourceLoc feSub(eSub, *SM);
+
+  // End location points to the wrong location, we lex for it manually here
+  size_t bracketIdx = 0;
+  SourceLocation typeExprStart = SM->getExpansionLoc(asTypeExpr->getBeginLoc());
+  SourceLocation typeExprEnd = SM->getExpansionLoc(asTypeExpr->getEndLoc());
+  const char *startBuf = SM->getCharacterData(typeExprEnd);
+  const char *fileEndBuf =
+      SM->getCharacterData(SM->getLocForEndOfFile(SM->getMainFileID()));
+  Lexer lex(typeExprEnd, clang::LangOptions(), startBuf, startBuf, fileEndBuf);
+
+  clang::Token tok;
+  SourceLocation rParenLoc;
+  SourceLocation lParenLoc;
+  lex.LexFromRawLexer(tok);
+  // TODO: Better escape clause
+  while (1) {
+    if (tok.is(clang::tok::r_paren)) {
+      bracketIdx--;
+      if (bracketIdx == 0) {
+        rParenLoc = tok.getLocation();
+        break;
+      }
+    } else if (tok.is(clang::tok::l_paren)) {
+      if (bracketIdx == 0) {
+        lParenLoc = tok.getLocation();
+      }
+      bracketIdx++;
+    }
+
+    lex.LexFromRawLexer(tok);
+  }
+
+  CharSourceRange callCharRng =
+      CharSourceRange::getTokenRange(typeExprStart, lParenLoc);
+
+  clang::SmallString<40> castStr;
+  llvm::raw_svector_ostream castOS(castStr);
+  castOS << "((";
+  QualType castType = asTypeExpr->getType();
+  std::string typeStr = castType.getAsString();
+  if (typeStr == "float") {
+    castOS << "float";
+  } else if (typeStr == "double") {
+    castOS << "double";
+  } else {
+    llvm::errs() << sOpenHipify << sErr << "Cannot deduce type.\n";
+    return false; // TODO: Better err msg
+  }
+  castOS << ")(";
+
+  ct::Replacement callRepl = ct::Replacement(*SM, callCharRng, castOS.str());
+  llvm::consumeError(m_replacements.add(callRepl));
+  ct::Replacement parenRepl = ct::Replacement(*SM, rParenLoc, 0, ")");
+  llvm::consumeError(m_replacements.add(parenRepl));
+  return true;
+}
+
 bool OpenHipifyKernelFA::OpenCLFunctionCall(
     const ASTMatch::MatchFinder::MatchResult &res) {
   const CallExpr *callExpr = res.Nodes.getNodeAs<CallExpr>(B_CALL_EXPR);
@@ -134,7 +220,7 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   } break;
   }
 
-  return false;
+  return true;
 }
 
 void OpenHipifyKernelFA::AppendKernelFuncMap(
@@ -360,4 +446,64 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   ct::Replacement replacement(*srcManager, exprCharRange, hipDimOS.str());
   llvm::consumeError(m_replacements.add(replacement));
   return true;
+}
+
+void OpenHipifyKernelFA::PrettyError(clang::SourceRange loc,
+                                     raw_ostream::Colors underlineCol,
+                                     std::string extraInfo) {
+  StringRef fileName = getCurrentFile();
+  fileName.consume_front("/tmp/");
+  size_t index = fileName.rfind('-');
+  fileName = fileName.take_front(index);
+
+  llvm::errs() << "<" << fileName << ">"
+               << "\n";
+
+  unsigned startLineNum = SM->getSpellingLineNumber(loc.getBegin());
+  // Get previous line
+  auto LineSourceLoc = [&](unsigned line) -> SourceLocation {
+    return SM->translateLineCol(SM->getMainFileID(), line, 1);
+  };
+  SourceLocation prevLineStart = LineSourceLoc(startLineNum - 1);
+  SourceLocation curLineStart = LineSourceLoc(startLineNum);
+  SourceLocation nextLineStart = LineSourceLoc(startLineNum + 1);
+  SourceLocation nextLineEnd = LineSourceLoc(startLineNum + 2);
+
+  auto LineText = [&](SourceLocation start, SourceLocation end) {
+    CharSourceRange rng = CharSourceRange::getTokenRange(start, end);
+    return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+  };
+
+  std::string prevLineStr = LineText(prevLineStart, curLineStart);
+  std::string curLineStr = LineText(curLineStart, nextLineStart);
+  std::string nextLineStr = LineText(nextLineStart, nextLineEnd);
+
+  auto printLine = [&](std::string str, unsigned line) {
+    llvm::errs() << line << "| " << str;
+  };
+
+  printLine(prevLineStr, startLineNum - 1);
+  printLine(curLineStr, startLineNum);
+
+  unsigned exprStartCol = SM->getSpellingColumnNumber(loc.getBegin());
+  unsigned exprEndCol = SM->getSpellingColumnNumber(loc.getEnd());
+  std::string curColNumString = std::to_string(startLineNum);
+  for (unsigned i = 0; i < curColNumString.size(); i++) {
+    llvm::errs() << " ";
+  }
+  llvm::errs() << "| ";
+  for (unsigned i = 1; i < exprStartCol; i++) {
+    llvm::errs() << " ";
+  }
+  for (unsigned i = exprStartCol; i < exprEndCol; i++) {
+    llvm::WithColor(llvm::errs(), underlineCol, true) << "^";
+  }
+
+  if (extraInfo.size() > 0) {
+    llvm::WithColor(llvm::errs(), underlineCol, true) << " <--- " << extraInfo;
+  }
+
+  llvm::errs() << "\n";
+  printLine(nextLineStr, startLineNum + 1);
+  llvm::errs() << "\n";
 }

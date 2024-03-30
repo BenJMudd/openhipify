@@ -31,6 +31,7 @@ private:
 
   bool OpenCLFunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool OpenCLKernelFunctionDecl(const ASTMatch::MatchFinder::MatchResult &res);
+  bool OpenCLAsTypeExpr(const ASTMatch::MatchFinder::MatchResult &res);
 
   void AppendKernelFuncMap(const clang::FunctionDecl &funcDecl,
                            const std::vector<ct::Replacement> &replacements);
@@ -46,9 +47,14 @@ private:
   bool ReplaceBARRIER(const clang::CallExpr &callExpr,
                       const ASTMatch::MatchFinder::MatchResult &res);
 
+  void PrettyError(clang::SourceRange loc,
+                   llvm::raw_ostream::Colors underlineCol,
+                   std::string extraInfo = "");
+
   std::set<HIP::AUX_FUNC_ID> m_auxFunctions;
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
 
+  const clang::SourceManager *SM;
   MatchFinderPtr m_finder;
   ct::Replacements &m_replacements;
 };
