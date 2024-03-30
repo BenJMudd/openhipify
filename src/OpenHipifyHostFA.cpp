@@ -628,6 +628,10 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!varDecl)
     return false;
 
+  // prefixing with pointer type
+  ct::Replacement ptrRepl(*SM, varDecl->getEndLoc(), 0, "*");
+  llvm::consumeError(m_replacements.add(ptrRepl));
+
   std::string varDeclStr = DeclToStr(varDecl);
   size_t clmemidx = varDeclStr.find(OpenCL::CL_MEM);
   if (clmemidx == std::string::npos)
@@ -639,7 +643,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (varTypeIt == m_varTypeRenameLocs.end()) {
     m_varTypeRenameLocs.insert(beginDeclLoc.getHashValue());
     ct::Replacement typeRepl(*SM, beginDeclLoc, OpenCL::CL_MEM.length(),
-                             HIP::VOID_PTR);
+                             HIP::VOID);
     llvm::consumeError(m_replacements.add(typeRepl));
   }
 
