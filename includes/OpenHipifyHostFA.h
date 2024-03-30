@@ -38,6 +38,8 @@ private:
 
   bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
   bool VariableDeclaration(const ASTMatch::MatchFinder::MatchResult &res);
+  bool DeclarationStmt(const ASTMatch::MatchFinder::MatchResult &res);
+  bool BinaryOpDeclRef(const ASTMatch::MatchFinder::MatchResult &res);
 
   bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
@@ -47,8 +49,12 @@ private:
 
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
+  bool ReplaceCreateBufferVarDecl(const clang::CallExpr *cBufExpr,
+                                  const clang::VarDecl *varDecl);
   bool ReplaceCreateBufferBinOp(const clang::CallExpr *cBufExpr,
                                 const clang::BinaryOperator *binOp);
+  void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
+                                    std::string varName);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
   bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 
@@ -56,6 +62,9 @@ private:
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
   bool TrackKernelLaunch(const clang::CallExpr *callExpr);
   bool TrackKernelCreate(const clang::CallExpr *callExpr);
+  bool TrackKernelCreateBinop(const clang::CallExpr *callExpr,
+                              const clang::BinaryOperator *binOp,
+                              std::string kernelName);
 
   bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
                                 size_t argIndex,
