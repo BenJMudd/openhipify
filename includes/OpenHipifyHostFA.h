@@ -76,6 +76,7 @@ private:
   void RemoveStmtRangeFromSource(clang::SourceRange rng);
 
   const clang::Stmt *SearchParentScope(const clang::Expr *base);
+  const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
 
   std::string ExprToStr(const clang::Expr *expr);
   std::string DeclToStr(const clang::Decl *decl);
