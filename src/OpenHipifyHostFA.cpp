@@ -162,7 +162,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
           StripAddrOfOp(blockSizeExpr, isBlockSizeAddrStripped);
 
       // Replace function name with hip equivalent
-      SourceLocation funcNameLoc = launchKernelExpr->getBeginLoc();
+      SourceLocation funcNameLoc =
+          GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
       ct::Replacement nameReplacement(
           *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
           HIP::LAUNCHKERNELGGL);
@@ -325,7 +326,9 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       // Remove expression
-      RemoveExprFromSource(setArgExpr);
+      // test if binary
+      const Expr *rmvExpr = GetBinaryExprParenOrSelf(setArgExpr);
+      RemoveExprFromSource(rmvExpr);
     };
 
     auto argIter = kInfo.args.begin();
@@ -930,6 +933,17 @@ const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
   }
 
   return nullptr;
+}
+
+const clang::Expr *
+OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
+  auto parentNode = AST->getParents(*base);
+  const Expr *binOp = parentNode.begin()->get<clang::BinaryOperator>();
+  if (binOp) {
+    return binOp;
+  }
+
+  return base;
 }
 
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
