@@ -342,14 +342,14 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // No previous arguments processed, record the current scope
       // for the kernel
       if (!baseScopeStmt) {
-        auto argScopeNode = AST->getParents(*((*argIter)->IgnoreCasts()));
-        baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+        baseScopeStmt = SearchParentScope(*argIter);
+        // auto argScopeNode = AST->getParents(*((*argIter)->IgnoreCasts()));
+        // baseScopeStmt = argScopeNode.begin()->get<Stmt>();
         baseScopeExpr = *argIter;
       }
 
       auto CheckScope = [&](const CallExpr *expr) -> bool {
-        auto exprScopeNode = AST->getParents(*(expr->IgnoreCasts()));
-        auto *exprScopeStmt = exprScopeNode.begin()->get<Stmt>();
+        auto *exprScopeStmt = SearchParentScope(expr);
         if (exprScopeStmt != baseScopeStmt) {
           ERR_BOLD_STR << sOpenHipify;
           llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
@@ -628,6 +628,10 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!varDecl)
     return false;
 
+  // prefixing with pointer type
+  ct::Replacement ptrRepl(*SM, varDecl->getEndLoc(), 0, "*");
+  llvm::consumeError(m_replacements.add(ptrRepl));
+
   std::string varDeclStr = DeclToStr(varDecl);
   size_t clmemidx = varDeclStr.find(OpenCL::CL_MEM);
   if (clmemidx == std::string::npos)
@@ -639,7 +643,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (varTypeIt == m_varTypeRenameLocs.end()) {
     m_varTypeRenameLocs.insert(beginDeclLoc.getHashValue());
     ct::Replacement typeRepl(*SM, beginDeclLoc, OpenCL::CL_MEM.length(),
-                             HIP::VOID_PTR);
+                             HIP::VOID);
     llvm::consumeError(m_replacements.add(typeRepl));
   }
 
@@ -912,6 +916,20 @@ void OpenHipifyHostFA::RemoveStmtRangeFromSource(SourceRange rng) {
       CharSourceRange::getCharRange(rng.getBegin(), exprEndLoc);
   ct::Replacement exprRepl(*SM, fullExprRng, "");
   llvm::consumeError(m_replacements.add(exprRepl));
+}
+
+const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
+  const Stmt *cur = base;
+  while (cur) {
+    auto argScopeNode = AST->getParents(*cur);
+    const Stmt *baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+    if (auto *baseScope = dyn_cast<CompoundStmt>(baseScopeStmt)) {
+      return baseScope;
+    }
+    cur = baseScopeStmt;
+  }
+
+  return nullptr;
 }
 
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {

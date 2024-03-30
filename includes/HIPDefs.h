@@ -130,6 +130,7 @@ const std::string FREE = "hipFree";
 const std::string LAUNCHKERNELGGL = "hipLaunchKernelGGL";
 // Types
 const std::string VOID_PTR = "void*";
+const std::string VOID = "void";
 const std::string VOID_PTR_PTR_CAST = "(void**)";
 // Values
 const std::string MEMCPY_HOST_DEVICE = "hipMemcpyHostToDevice";
