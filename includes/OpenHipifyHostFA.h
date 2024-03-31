@@ -84,6 +84,7 @@ private:
   bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
 
+  bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);
   std::string DeclToStr(const clang::Decl *decl);
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,

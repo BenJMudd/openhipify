@@ -88,21 +88,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       kDef = &kFuncMapIter->second;
     }
 
-    auto StripAddrOfOp = [&](const Expr *expr,
-                             bool &isAddrStripped) -> std::string {
-      // Test if & is used to describe arg
-      isAddrStripped = false;
-      const UnaryOperator *unaryOp =
-          dyn_cast<UnaryOperator>(expr->IgnoreCasts());
-      if (unaryOp && unaryOp->getOpcode() == UO_AddrOf) {
-        // Found & prepend
-        isAddrStripped = true;
-        return ExprToStr(unaryOp->getSubExpr());
-      } else {
-        return ExprToStr(expr);
-      }
-    };
-
     auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
       if (!argsFinalised) {
         auto EnsureArguments = [&]() -> bool {
@@ -154,12 +139,13 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Extract arg 4,5 for dimensions
       const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
       const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-      bool isNumBlocksAddrStripped, isBlockSizeAddrStripped;
 
-      std::string numBlocksStr =
-          StripAddrOfOp(numBlocksExpr, isNumBlocksAddrStripped);
-      std::string blockSizeStr =
-          StripAddrOfOp(blockSizeExpr, isBlockSizeAddrStripped);
+      std::string numBlocksStr;
+      bool isNumBlocksAddrStripped =
+          StripAddressOfVar(numBlocksExpr, numBlocksStr);
+      std::string blockSizeStr;
+      bool isBlockSizeAddrStripped =
+          StripAddressOfVar(blockSizeExpr, blockSizeStr);
 
       // Replace function name with hip equivalent
       SourceLocation funcNameLoc =
@@ -316,8 +302,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       // Test if & is used to describe arg
-      bool isAddrStripped = false;
-      std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
+      std::string kernelArgStr;
+      bool isAddrStripped = StripAddressOfVar(kernelArgExpr, kernelArgStr);
 
       args[argPos] = ArgInfo(kernelArgStr, isAddrStripped, toCast);
       argsUse[argPos] = true;
@@ -900,6 +886,9 @@ bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {
 
   // generate initialisation of HIP props (could use scope stuff)
 
+  std::string HIPPropRepl;
+  llvm::raw_string_ostream replStr(HIPPropRepl);
+
   bool propsExists = false;
   for (auto *initScope : m_dPropScopes) {
     if (IsInScope(callExpr, *initScope)) {
@@ -910,15 +899,33 @@ bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {
 
   if (!propsExists) {
     m_dPropScopes.emplace_back(SearchParentScope(&callExpr));
-    llvm::errs() << "Inserting props...\n";
+    replStr << HIP::INIT_D_PROPS;
   }
 
   APSInt paramFlag = paramEval.Val.getInt();
   if (paramFlag == OpenCL::CL_KERNEL_WORK_GROUP_SIZE) {
     // use hip prop obj
+    const Expr *retVarExpr = callExpr.getArg(4);
+    if (!retVarExpr)
+      return false;
+
+    std::string retVar;
+    StripAddressOfVar(retVarExpr, retVar);
+    replStr << retVar << "=" << HIP::PROPS_OBJ << "."
+            << HIP::PROPS_MTHREAD_P_BLOCK << ";";
   }
 
-  return false;
+  // Replacement
+  const Expr *replExpr = GetBinaryExprParenOrSelf(&callExpr);
+  SourceLocation endLoc =
+      LexForTokenLocation(replExpr->getEndLoc(), clang::tok::semi)
+          .getLocWithOffset(1);
+  CharSourceRange replRng =
+      CharSourceRange::getCharRange({replExpr->getBeginLoc(), endLoc});
+  ct::Replacement repl(*SM, replRng, replStr.str());
+  llvm::consumeError(m_replacements.add(repl));
+
+  return true;
 }
 
 bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
@@ -1023,6 +1030,21 @@ OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
   }
 
   return base;
+}
+
+bool OpenHipifyHostFA::StripAddressOfVar(const Expr *var, std::string &ret) {
+  // Test if & is used to describe arg
+  const UnaryOperator *unaryOp = dyn_cast<UnaryOperator>(var->IgnoreCasts());
+  if (unaryOp && unaryOp->getOpcode() == UO_AddrOf) {
+    // Found & prepend
+    ret = ExprToStr(unaryOp->getSubExpr());
+    return true;
+  } else {
+    ret = ExprToStr(var);
+    return false;
+  }
+
+  return false;
 }
 
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
