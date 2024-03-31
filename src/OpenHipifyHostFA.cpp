@@ -148,11 +148,14 @@ void OpenHipifyHostFA::EndSourceFileAction() {
           StripAddressOfVar(blockSizeExpr, blockSizeStr);
 
       // Replace function name with hip equivalent
-      SourceLocation funcNameLoc =
+      SourceLocation funcNameBLoc =
           GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
-      ct::Replacement nameReplacement(
-          *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
-          HIP::LAUNCHKERNELGGL);
+      SourceLocation funcNameELoc =
+          LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
+      CharSourceRange nameReplRng =
+          CharSourceRange::getCharRange(funcNameBLoc, funcNameELoc);
+
+      ct::Replacement nameReplacement(*SM, nameReplRng, HIP::LAUNCHKERNELGGL);
       llvm::consumeError(m_replacements.add(nameReplacement));
 
       // Construct new args
