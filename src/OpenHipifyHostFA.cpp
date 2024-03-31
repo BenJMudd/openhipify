@@ -781,6 +781,15 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
 
 bool OpenHipifyHostFA::HandleGenericFunctionCall(
     const clang::CallExpr *callExpr, OpenCL::HostFuncs func) {
+  // match on clgetkernelworkgroup, send to aux func
+  switch (func) {
+  case OpenCL::HostFuncs::clGetCWGInfo: {
+    return ReplaceGetKWGGeneric(*callExpr);
+  } break;
+  default: {
+  } break;
+  }
+
   return false;
 }
 
@@ -877,6 +886,41 @@ bool OpenHipifyHostFA::TrackKernelCreateBinop(
   return true;
 }
 
+bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {
+  // Extract 3rd argument, evaluate, generate switch statement and blast into
+  // next function
+  const Expr *paramExpr = callExpr.getArg(2);
+  if (!paramExpr)
+    return false;
+
+  Expr::EvalResult paramEval;
+  // TODO: add aux function for false
+  if (!paramExpr->EvaluateAsInt(paramEval, *AST))
+    return false;
+
+  // generate initialisation of HIP props (could use scope stuff)
+
+  bool propsExists = false;
+  for (auto *initScope : m_dPropScopes) {
+    if (IsInScope(callExpr, *initScope)) {
+      propsExists = true;
+      break;
+    }
+  }
+
+  if (!propsExists) {
+    m_dPropScopes.emplace_back(SearchParentScope(&callExpr));
+    llvm::errs() << "Inserting props...\n";
+  }
+
+  APSInt paramFlag = paramEval.Val.getInt();
+  if (paramFlag == OpenCL::CL_KERNEL_WORK_GROUP_SIZE) {
+    // use hip prop obj
+  }
+
+  return false;
+}
+
 bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
     const clang::CallExpr *callExpr, size_t argIndex,
     const clang::ValueDecl **kernelDecl) {
@@ -933,11 +977,15 @@ void OpenHipifyHostFA::RemoveStmtRangeFromSource(SourceRange rng) {
   llvm::consumeError(m_replacements.add(exprRepl));
 }
 
-const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
+const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Stmt *base) {
   const Stmt *cur = base;
   while (cur) {
     auto argScopeNode = AST->getParents(*cur);
     const Stmt *baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+    if (!baseScopeStmt) {
+      return nullptr;
+    }
+
     if (auto *baseScope = dyn_cast<CompoundStmt>(baseScopeStmt)) {
       return baseScope;
     }
@@ -945,6 +993,25 @@ const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
   }
 
   return nullptr;
+}
+
+bool OpenHipifyHostFA::IsInScope(const clang::Stmt &base,
+                                 const clang::Stmt &tScope) {
+  const Stmt *cur = &base;
+  while (cur) {
+    const Stmt *curScope = SearchParentScope(cur);
+    if (!curScope) {
+      return false;
+    }
+
+    if (curScope == &tScope) {
+      return true;
+    }
+
+    cur = curScope;
+  }
+
+  return false;
 }
 
 const clang::Expr *

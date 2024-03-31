@@ -136,6 +136,11 @@ const std::string VOID_PTR_PTR_CAST = "(void**)";
 const std::string MEMCPY_HOST_DEVICE = "hipMemcpyHostToDevice";
 const std::string MEMCPY_DEVICE_HOST = "hipMemcpyDeviceToHost";
 
+// Snippets
+// Only works for the first device
+const std::string HIP_INIT_D_PROPS =
+    "hipDeviceProp_t HIP_Prop;hipGetDeviceProperties(&HIP_Prop, 0);";
+
 // Misc
 const std::string EOL = ";";
 

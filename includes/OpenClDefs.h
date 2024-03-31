@@ -99,6 +99,9 @@ const std::set<HostFuncs> HOST_MEM_FUNCS{
 const std::string GET_KWG_INFO = "clGetKernelWorkGroupInfo";
 const std::set<HostFuncs> HOST_GENERIC_FUNCS{HostFuncs::clGetCWGInfo};
 
+// generic definition
+const int CL_KERNEL_WORK_GROUP_SIZE = 0x11B0;
+
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
 const std::string CL_ENQUEUE_NDRANGE_BUFFER = "clEnqueueNDRangeKernel";

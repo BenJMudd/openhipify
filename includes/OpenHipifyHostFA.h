@@ -68,6 +68,9 @@ private:
                               const clang::BinaryOperator *binOp,
                               std::string kernelName);
 
+  // Generic function call replacements
+  bool ReplaceGetKWGGeneric(const clang::CallExpr &callExpr);
+
   bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
                                 size_t argIndex,
                                 const clang::ValueDecl **kernelDecl);
@@ -77,7 +80,8 @@ private:
   void RemoveExprFromSource(const clang::Expr *decl);
   void RemoveStmtRangeFromSource(clang::SourceRange rng);
 
-  const clang::Stmt *SearchParentScope(const clang::Expr *base);
+  const clang::Stmt *SearchParentScope(const clang::Stmt *base);
+  bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
 
   std::string ExprToStr(const clang::Expr *expr);
@@ -91,6 +95,7 @@ private:
 
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
+  std::vector<const clang::Stmt *> m_dPropScopes;
 
   std::set<unsigned> m_varTypeRenameLocs;
   ct::Replacements &m_replacements;
