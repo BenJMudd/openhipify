@@ -31,6 +31,16 @@ public:
         m_kernelIncludeTracker(kernelIncludeTracker) {}
 
 private:
+  struct ArgInfo {
+    ArgInfo(std::string str, bool stripped, bool cast)
+        : argStr(str), isAddrOpStripped(stripped), toCast(cast) {}
+    ArgInfo() : isAddrOpStripped(false), toCast(false) {}
+
+    std::string argStr;
+    bool isAddrOpStripped;
+    bool toCast;
+  };
+
   void run(const ASTMatch::MatchFinder::MatchResult &res) override;
 
   std::unique_ptr<clang::ASTConsumer>
@@ -71,6 +81,12 @@ private:
   bool TrackKernelCreateBinop(const clang::CallExpr *callExpr,
                               const clang::BinaryOperator *binOp,
                               std::string kernelName);
+
+  void GenerateNDKernelLaunch(const clang::CallExpr *launchKernelExpr,
+                              const KernelLaunchTracker::KernelInfo &kInfo,
+                              const KernelDefinition *kDef,
+                              const std::vector<ArgInfo> &args,
+                              std::set<std::string> &kernelFilesUsed);
 
   // Generic function call replacements
   bool ReplaceGetKWGGeneric(const clang::CallExpr &callExpr);
