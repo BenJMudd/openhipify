@@ -22,7 +22,8 @@ enum class AUX_FUNC_ID : uint32_t {
   GET_GLOBAL_ID,
   GET_LOCAL_ID,
   GET_GROUP_ID,
-  GET_LOCAL_SIZE
+  GET_LOCAL_SIZE,
+  DOT
 };
 
 const std::string GET_GLOBAL_ID_FUNC_NAME = "__get_global_id";
@@ -109,18 +110,25 @@ const std::string GET_LOCAL_SIZE_BODY = "__device__ size_t " +
                                         "}"
                                         "}\n";
 
+const std::string DOT_FUNC_NAME = "__dotf";
+const std::string DOT_BODY = "__device__ float " + DOT_FUNC_NAME +
+                             "(float4 a, float 4b) {return a.x * b.x + a.y * "
+                             "b.y + a.z * b.z + a.w * b.w}\n";
+
 const std::map<AUX_FUNC_ID, std::pair<std::string, std::string>> AUX_FUNC_MAP{
     {AUX_FUNC_ID::GET_GLOBAL_ID, {GET_GLOBAL_ID_FUNC_NAME, GET_GLOBAL_ID_BODY}},
     {AUX_FUNC_ID::GET_LOCAL_ID, {GET_LOCAL_ID_FUNC_NAME, GET_LOCAL_ID_BODY}},
     {AUX_FUNC_ID::GET_GROUP_ID, {GET_GROUP_ID_FUNC_NAME, GET_GROUP_ID_BODY}},
     {AUX_FUNC_ID::GET_LOCAL_SIZE,
-     {GET_LOCAL_SIZE_FUNC_NAME, GET_LOCAL_SIZE_BODY}}};
+     {GET_LOCAL_SIZE_FUNC_NAME, GET_LOCAL_SIZE_BODY}},
+    {AUX_FUNC_ID::DOT, {DOT_FUNC_NAME, DOT_BODY}}};
 
 const std::map<OpenCL::KernelFuncs, AUX_FUNC_ID> OPENCL_HIP_AUX_FUNC_MAP{
     {OpenCL::KernelFuncs::GET_GLOBAL_ID, AUX_FUNC_ID::GET_GLOBAL_ID},
     {OpenCL::KernelFuncs::GET_LOCAL_ID, AUX_FUNC_ID::GET_LOCAL_ID},
     {OpenCL::KernelFuncs::GET_GROUP_ID, AUX_FUNC_ID::GET_GROUP_ID},
-    {OpenCL::KernelFuncs::GET_LOCAL_SIZE, AUX_FUNC_ID::GET_LOCAL_SIZE}};
+    {OpenCL::KernelFuncs::GET_LOCAL_SIZE, AUX_FUNC_ID::GET_LOCAL_SIZE},
+    {OpenCL::KernelFuncs::DOT, AUX_FUNC_ID::DOT}};
 
 // Host
 // Functions

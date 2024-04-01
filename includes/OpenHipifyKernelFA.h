@@ -36,9 +36,11 @@ private:
   void AppendKernelFuncMap(const clang::FunctionDecl &funcDecl,
                            const std::vector<ct::Replacement> &replacements);
 
-  void InsertAuxFunction(const clang::SourceManager &srcManager,
-                         clang::CharSourceRange funcNameRng,
+  void InsertAuxFunction(clang::CharSourceRange funcNameRng,
                          HIP::AUX_FUNC_ID func);
+
+  bool ReplaceWithAuxFunction(const clang::FunctionDecl &funcDecl,
+                              OpenCL::KernelFuncs funcIdent);
 
   bool
   ReplaceGET_GENERIC_THREAD_ID(const clang::CallExpr &callExpr,

@@ -27,7 +27,8 @@ enum class KernelFuncs : uint32_t {
   GET_LOCAL_ID,
   GET_GROUP_ID,
   GET_LOCAL_SIZE,
-  BARRIER
+  BARRIER,
+  DOT
 };
 
 const std::string GET_GLOBAL_ID = "get_global_id";
@@ -37,11 +38,14 @@ const std::string GET_LOCAL_SIZE = "get_local_size";
 
 const std::string BARRIER = "barrier";
 
+const std::string DOT = "dot";
+
 const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
     {GET_GLOBAL_ID, KernelFuncs::GET_GLOBAL_ID},
     {GET_LOCAL_ID, KernelFuncs::GET_LOCAL_ID},
     {GET_GROUP_ID, KernelFuncs::GET_GROUP_ID},
     {GET_LOCAL_SIZE, KernelFuncs::GET_LOCAL_SIZE},
+    {DOT, KernelFuncs::DOT},
     {BARRIER, KernelFuncs::BARRIER}};
 
 // definitions
