@@ -45,6 +45,8 @@ private:
                                 OpenCL::HostFuncs func);
   bool HandleKernelFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
+  bool HandleGenericFunctionCall(const clang::CallExpr *callExpr,
+                                 OpenCL::HostFuncs func);
   bool HandleRedundantFunctionCall(const clang::CallExpr *callExpr);
 
   // Memory function call replacements
@@ -55,6 +57,8 @@ private:
                                 const clang::BinaryOperator *binOp);
   void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
                                     std::string varName);
+  void ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
+                             std::string hostBuf, std::string bytes);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
   bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 
@@ -66,6 +70,9 @@ private:
                               const clang::BinaryOperator *binOp,
                               std::string kernelName);
 
+  // Generic function call replacements
+  bool ReplaceGetKWGGeneric(const clang::CallExpr &callExpr);
+
   bool ExtractKernelDeclFromArg(const clang::CallExpr *callExpr,
                                 size_t argIndex,
                                 const clang::ValueDecl **kernelDecl);
@@ -75,9 +82,11 @@ private:
   void RemoveExprFromSource(const clang::Expr *decl);
   void RemoveStmtRangeFromSource(clang::SourceRange rng);
 
-  const clang::Stmt *SearchParentScope(const clang::Expr *base);
+  const clang::Stmt *SearchParentScope(const clang::Stmt *base);
+  bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
 
+  bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);
   std::string DeclToStr(const clang::Decl *decl);
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
@@ -89,6 +98,7 @@ private:
 
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
+  std::vector<const clang::Stmt *> m_dPropScopes;
 
   std::set<unsigned> m_varTypeRenameLocs;
   ct::Replacements &m_replacements;

@@ -37,16 +37,16 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
       this);
 
   // removal of redundant variable declarations
-  m_finder->addMatcher(
-      declStmt(isExpansionInMainFile(),
-               hasDescendant(
-                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
-                                 hasType(asString(OpenCL::CL_PROGRAM)),
-                                 hasType(asString(OpenCL::CL_KERNEL)),
-                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
-                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
-          .bind(B_DECL_STMT_CULL),
-      this);
+  // m_finder->addMatcher(
+  //     declStmt(isExpansionInMainFile(),
+  //              hasDescendant(
+  //                  varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
+  //                                hasType(asString(OpenCL::CL_PROGRAM)),
+  //                                hasType(asString(OpenCL::CL_KERNEL)),
+  //                                hasType(asString(OpenCL::CL_DEVICE_ID)),
+  //                                hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
+  //         .bind(B_DECL_STMT_CULL),
+  //     this);
 
   return m_finder->newASTConsumer();
 }
@@ -87,21 +87,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     if (kFuncMapIter != m_kernelFuncMap.end()) {
       kDef = &kFuncMapIter->second;
     }
-
-    auto StripAddrOfOp = [&](const Expr *expr,
-                             bool &isAddrStripped) -> std::string {
-      // Test if & is used to describe arg
-      isAddrStripped = false;
-      const UnaryOperator *unaryOp =
-          dyn_cast<UnaryOperator>(expr->IgnoreCasts());
-      if (unaryOp && unaryOp->getOpcode() == UO_AddrOf) {
-        // Found & prepend
-        isAddrStripped = true;
-        return ExprToStr(unaryOp->getSubExpr());
-      } else {
-        return ExprToStr(expr);
-      }
-    };
 
     auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
       if (!argsFinalised) {
@@ -154,19 +139,23 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       // Extract arg 4,5 for dimensions
       const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
       const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-      bool isNumBlocksAddrStripped, isBlockSizeAddrStripped;
 
-      std::string numBlocksStr =
-          StripAddrOfOp(numBlocksExpr, isNumBlocksAddrStripped);
-      std::string blockSizeStr =
-          StripAddrOfOp(blockSizeExpr, isBlockSizeAddrStripped);
+      std::string numBlocksStr;
+      bool isNumBlocksAddrStripped =
+          StripAddressOfVar(numBlocksExpr, numBlocksStr);
+      std::string blockSizeStr;
+      bool isBlockSizeAddrStripped =
+          StripAddressOfVar(blockSizeExpr, blockSizeStr);
 
       // Replace function name with hip equivalent
-      SourceLocation funcNameLoc =
+      SourceLocation funcNameBLoc =
           GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
-      ct::Replacement nameReplacement(
-          *SM, funcNameLoc, OpenCL::CL_ENQUEUE_NDRANGE_BUFFER.length(),
-          HIP::LAUNCHKERNELGGL);
+      SourceLocation funcNameELoc =
+          LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
+      CharSourceRange nameReplRng =
+          CharSourceRange::getCharRange(funcNameBLoc, funcNameELoc);
+
+      ct::Replacement nameReplacement(*SM, nameReplRng, HIP::LAUNCHKERNELGGL);
       llvm::consumeError(m_replacements.add(nameReplacement));
 
       // Construct new args
@@ -316,8 +305,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       // Test if & is used to describe arg
-      bool isAddrStripped = false;
-      std::string kernelArgStr = StripAddrOfOp(kernelArgExpr, isAddrStripped);
+      std::string kernelArgStr;
+      bool isAddrStripped = StripAddressOfVar(kernelArgExpr, kernelArgStr);
 
       args[argPos] = ArgInfo(kernelArgStr, isAddrStripped, toCast);
       argsUse[argPos] = true;
@@ -482,6 +471,13 @@ bool OpenHipifyHostFA::FunctionCall(
   if (iter != OpenCL::HOST_KERNEL_FUNCS.end()) {
     // Kernel related function found
     HandleKernelFunctionCall(callExpr, *iter);
+    return true;
+  }
+
+  iter = OpenCL::HOST_GENERIC_FUNCS.find(funcSearch->second);
+  if (iter != OpenCL::HOST_GENERIC_FUNCS.end()) {
+    // generic function found
+    HandleGenericFunctionCall(callExpr, *iter);
     return true;
   }
 
@@ -681,6 +677,30 @@ void OpenHipifyHostFA::ReplaceCreateBufferArguments(
              << "," << bufSizeExprStr;
   ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
+  ReplaceCBuffPiggyBack(callExpr, varName, bufSizeExprStr);
+}
+
+void OpenHipifyHostFA::ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
+                                             std::string hostBuf,
+                                             std::string bytes) {
+  // Test if writebuffer is piggybacked onto the call
+  const Expr *bufExpr = callExpr->getArg(3)->IgnoreParens()->IgnoreCasts();
+  auto *bufRef = dyn_cast<DeclRefExpr>(bufExpr);
+  if (!bufRef) {
+    // No piggyback copy, return
+    return;
+  }
+
+  std::string destBuf = ExprToStr(bufRef);
+  std::string pBack;
+  llvm::raw_string_ostream pBackStr(pBack);
+  pBackStr << HIP::MEMCPY << "(" << hostBuf << "," << destBuf << "," << bytes
+           << "," << HIP::MEMCPY_HOST_DEVICE << ");";
+  SourceLocation endLoc =
+      LexForTokenLocation(callExpr->getEndLoc(), clang::tok::semi)
+          .getLocWithOffset(1);
+  ct::Replacement pRepl(*SM, endLoc, 0, pBackStr.str());
+  llvm::consumeError(m_replacements.add(pRepl));
 }
 
 // TODO: Handle error return for clCreateWriteBuffer
@@ -765,6 +785,20 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clCreateKernel: {
     return TrackKernelCreate(callExpr);
   }
+  default: {
+  } break;
+  }
+
+  return false;
+}
+
+bool OpenHipifyHostFA::HandleGenericFunctionCall(
+    const clang::CallExpr *callExpr, OpenCL::HostFuncs func) {
+  // match on clgetkernelworkgroup, send to aux func
+  switch (func) {
+  case OpenCL::HostFuncs::clGetCWGInfo: {
+    return ReplaceGetKWGGeneric(*callExpr);
+  } break;
   default: {
   } break;
   }
@@ -865,6 +899,62 @@ bool OpenHipifyHostFA::TrackKernelCreateBinop(
   return true;
 }
 
+bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {
+  // Extract 3rd argument, evaluate, generate switch statement and blast into
+  // next function
+  const Expr *paramExpr = callExpr.getArg(2);
+  if (!paramExpr)
+    return false;
+
+  Expr::EvalResult paramEval;
+  // TODO: add aux function for false
+  if (!paramExpr->EvaluateAsInt(paramEval, *AST))
+    return false;
+
+  // generate initialisation of HIP props (could use scope stuff)
+
+  std::string HIPPropRepl;
+  llvm::raw_string_ostream replStr(HIPPropRepl);
+
+  bool propsExists = false;
+  for (auto *initScope : m_dPropScopes) {
+    if (IsInScope(callExpr, *initScope)) {
+      propsExists = true;
+      break;
+    }
+  }
+
+  if (!propsExists) {
+    m_dPropScopes.emplace_back(SearchParentScope(&callExpr));
+    replStr << HIP::INIT_D_PROPS;
+  }
+
+  APSInt paramFlag = paramEval.Val.getInt();
+  if (paramFlag == OpenCL::CL_KERNEL_WORK_GROUP_SIZE) {
+    // use hip prop obj
+    const Expr *retVarExpr = callExpr.getArg(4);
+    if (!retVarExpr)
+      return false;
+
+    std::string retVar;
+    StripAddressOfVar(retVarExpr, retVar);
+    replStr << retVar << "=" << HIP::PROPS_OBJ << "."
+            << HIP::PROPS_MTHREAD_P_BLOCK << ";";
+  }
+
+  // Replacement
+  const Expr *replExpr = GetBinaryExprParenOrSelf(&callExpr);
+  SourceLocation endLoc =
+      LexForTokenLocation(replExpr->getEndLoc(), clang::tok::semi)
+          .getLocWithOffset(1);
+  CharSourceRange replRng =
+      CharSourceRange::getCharRange({replExpr->getBeginLoc(), endLoc});
+  ct::Replacement repl(*SM, replRng, replStr.str());
+  llvm::consumeError(m_replacements.add(repl));
+
+  return true;
+}
+
 bool OpenHipifyHostFA::ExtractKernelDeclFromArg(
     const clang::CallExpr *callExpr, size_t argIndex,
     const clang::ValueDecl **kernelDecl) {
@@ -921,11 +1011,15 @@ void OpenHipifyHostFA::RemoveStmtRangeFromSource(SourceRange rng) {
   llvm::consumeError(m_replacements.add(exprRepl));
 }
 
-const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
+const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Stmt *base) {
   const Stmt *cur = base;
   while (cur) {
     auto argScopeNode = AST->getParents(*cur);
     const Stmt *baseScopeStmt = argScopeNode.begin()->get<Stmt>();
+    if (!baseScopeStmt) {
+      return nullptr;
+    }
+
     if (auto *baseScope = dyn_cast<CompoundStmt>(baseScopeStmt)) {
       return baseScope;
     }
@@ -933,6 +1027,25 @@ const Stmt *OpenHipifyHostFA::SearchParentScope(const clang::Expr *base) {
   }
 
   return nullptr;
+}
+
+bool OpenHipifyHostFA::IsInScope(const clang::Stmt &base,
+                                 const clang::Stmt &tScope) {
+  const Stmt *cur = &base;
+  while (cur) {
+    const Stmt *curScope = SearchParentScope(cur);
+    if (!curScope) {
+      return false;
+    }
+
+    if (curScope == &tScope) {
+      return true;
+    }
+
+    cur = curScope;
+  }
+
+  return false;
 }
 
 const clang::Expr *
@@ -944,6 +1057,21 @@ OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
   }
 
   return base;
+}
+
+bool OpenHipifyHostFA::StripAddressOfVar(const Expr *var, std::string &ret) {
+  // Test if & is used to describe arg
+  const UnaryOperator *unaryOp = dyn_cast<UnaryOperator>(var->IgnoreCasts());
+  if (unaryOp && unaryOp->getOpcode() == UO_AddrOf) {
+    // Found & prepend
+    ret = ExprToStr(unaryOp->getSubExpr());
+    return true;
+  } else {
+    ret = ExprToStr(var);
+    return false;
+  }
+
+  return false;
 }
 
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {

@@ -68,6 +68,7 @@ enum class HostFuncs {
   clSetKernelArg,
   clEnqueueNDRangeKernel,
   clCreateKernel,
+  clGetCWGInfo,
   clGetPlatformIDs,
   clGetDeviceIDs,
   clCreateContext,
@@ -93,6 +94,13 @@ const std::set<HostFuncs> HOST_MEM_FUNCS{
     HostFuncs::clEnqueueReadBuffer,
     HostFuncs::clReleaseMemObject,
 };
+
+// Generic function calls
+const std::string GET_KWG_INFO = "clGetKernelWorkGroupInfo";
+const std::set<HostFuncs> HOST_GENERIC_FUNCS{HostFuncs::clGetCWGInfo};
+
+// generic definition
+const int CL_KERNEL_WORK_GROUP_SIZE = 0x11B0;
 
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
@@ -137,6 +145,7 @@ const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
     {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
+    {GET_KWG_INFO, HostFuncs::clGetCWGInfo},
     {CL_GET_PLATFORM_IDS, HostFuncs::clGetPlatformIDs},
     {CL_GET_DEVICE_IDS, HostFuncs::clGetDeviceIDs},
     {CL_CREATE_CONTEXT, HostFuncs::clCreateContext},
