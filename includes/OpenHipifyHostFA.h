@@ -57,6 +57,8 @@ private:
                                 const clang::BinaryOperator *binOp);
   void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
                                     std::string varName);
+  void ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
+                             std::string hostBuf, std::string bytes);
   bool ReplaceEnqueBuffer(const clang::CallExpr *callExpr, bool isRead);
   bool ReplaceReleaseMemObject(const clang::CallExpr *callExpr);
 

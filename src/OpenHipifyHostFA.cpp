@@ -37,16 +37,16 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
       this);
 
   // removal of redundant variable declarations
-  m_finder->addMatcher(
-      declStmt(isExpansionInMainFile(),
-               hasDescendant(
-                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
-                                 hasType(asString(OpenCL::CL_PROGRAM)),
-                                 hasType(asString(OpenCL::CL_KERNEL)),
-                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
-                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
-          .bind(B_DECL_STMT_CULL),
-      this);
+  // m_finder->addMatcher(
+  //     declStmt(isExpansionInMainFile(),
+  //              hasDescendant(
+  //                  varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
+  //                                hasType(asString(OpenCL::CL_PROGRAM)),
+  //                                hasType(asString(OpenCL::CL_KERNEL)),
+  //                                hasType(asString(OpenCL::CL_DEVICE_ID)),
+  //                                hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
+  //         .bind(B_DECL_STMT_CULL),
+  //     this);
 
   return m_finder->newASTConsumer();
 }
@@ -677,6 +677,30 @@ void OpenHipifyHostFA::ReplaceCreateBufferArguments(
              << "," << bufSizeExprStr;
   ct::Replacement argsRepl(*SM, argRng, newArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
+  ReplaceCBuffPiggyBack(callExpr, varName, bufSizeExprStr);
+}
+
+void OpenHipifyHostFA::ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
+                                             std::string hostBuf,
+                                             std::string bytes) {
+  // Test if writebuffer is piggybacked onto the call
+  const Expr *bufExpr = callExpr->getArg(3)->IgnoreParens()->IgnoreCasts();
+  auto *bufRef = dyn_cast<DeclRefExpr>(bufExpr);
+  if (!bufRef) {
+    // No piggyback copy, return
+    return;
+  }
+
+  std::string destBuf = ExprToStr(bufRef);
+  std::string pBack;
+  llvm::raw_string_ostream pBackStr(pBack);
+  pBackStr << HIP::MEMCPY << "(" << hostBuf << "," << destBuf << "," << bytes
+           << "," << HIP::MEMCPY_HOST_DEVICE << ");";
+  SourceLocation endLoc =
+      LexForTokenLocation(callExpr->getEndLoc(), clang::tok::semi)
+          .getLocWithOffset(1);
+  ct::Replacement pRepl(*SM, endLoc, 0, pBackStr.str());
+  llvm::consumeError(m_replacements.add(pRepl));
 }
 
 // TODO: Handle error return for clCreateWriteBuffer
