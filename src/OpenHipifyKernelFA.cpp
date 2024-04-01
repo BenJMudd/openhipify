@@ -218,7 +218,8 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   case OpenCL::KernelFuncs::BARRIER: {
     ReplaceBARRIER(*callExpr, res);
   } break;
-  case OpenCL::KernelFuncs::DOT: {
+  case OpenCL::KernelFuncs::DOT:
+  case OpenCL::KernelFuncs::MAD: {
     ReplaceWithAuxFunction(*funcDecl, funcSearch->second);
   } break;
   }

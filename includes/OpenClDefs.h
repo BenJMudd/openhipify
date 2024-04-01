@@ -28,7 +28,8 @@ enum class KernelFuncs : uint32_t {
   GET_GROUP_ID,
   GET_LOCAL_SIZE,
   BARRIER,
-  DOT
+  DOT,
+  MAD
 };
 
 const std::string GET_GLOBAL_ID = "get_global_id";
@@ -39,6 +40,7 @@ const std::string GET_LOCAL_SIZE = "get_local_size";
 const std::string BARRIER = "barrier";
 
 const std::string DOT = "dot";
+const std::string MAD = "mad";
 
 const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
     {GET_GLOBAL_ID, KernelFuncs::GET_GLOBAL_ID},
@@ -46,6 +48,7 @@ const std::map<std::string, KernelFuncs> KERNEL_FUNC_MAP{
     {GET_GROUP_ID, KernelFuncs::GET_GROUP_ID},
     {GET_LOCAL_SIZE, KernelFuncs::GET_LOCAL_SIZE},
     {DOT, KernelFuncs::DOT},
+    {MAD, KernelFuncs::MAD},
     {BARRIER, KernelFuncs::BARRIER}};
 
 // definitions
@@ -73,6 +76,7 @@ enum class HostFuncs {
   clEnqueueNDRangeKernel,
   clCreateKernel,
   clGetCWGInfo,
+  clEnqueueTask,
   clGetPlatformIDs,
   clGetDeviceIDs,
   clCreateContext,
@@ -109,10 +113,11 @@ const int CL_KERNEL_WORK_GROUP_SIZE = 0x11B0;
 // Kernel launch function calls
 const std::string CL_SET_KERNEL_ARG = "clSetKernelArg";
 const std::string CL_ENQUEUE_NDRANGE_BUFFER = "clEnqueueNDRangeKernel";
+const std::string CL_ENQUEUE_TASK = "clEnqueueTask";
 const std::string CL_CREATE_KERNEL = "clCreateKernel";
-const std::set<HostFuncs> HOST_KERNEL_FUNCS{HostFuncs::clSetKernelArg,
-                                            HostFuncs::clEnqueueNDRangeKernel,
-                                            HostFuncs::clCreateKernel};
+const std::set<HostFuncs> HOST_KERNEL_FUNCS{
+    HostFuncs::clSetKernelArg, HostFuncs::clEnqueueNDRangeKernel,
+    HostFuncs::clCreateKernel, HostFuncs::clEnqueueTask};
 
 // Redundant function calls
 const std::string CL_GET_PLATFORM_IDS = "clGetPlatformIDs";

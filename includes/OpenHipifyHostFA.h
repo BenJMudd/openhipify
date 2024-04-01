@@ -20,6 +20,7 @@ public:
   // file name -> (kernel name -> kernel definition)
   using KernelIncludeTracker =
       std::map<std::string, std::map<std::string, std::string>>;
+  using KernelLaunch = std::pair<const clang::CallExpr *, OpenCL::HostFuncs>;
 
   explicit OpenHipifyHostFA(
       ct::Replacements &replacements,
@@ -64,7 +65,8 @@ private:
 
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
-  bool TrackKernelLaunch(const clang::CallExpr *callExpr);
+  bool TrackKernelLaunch(const clang::CallExpr *callExpr,
+                         OpenCL::HostFuncs func);
   bool TrackKernelCreate(const clang::CallExpr *callExpr);
   bool TrackKernelCreateBinop(const clang::CallExpr *callExpr,
                               const clang::BinaryOperator *binOp,

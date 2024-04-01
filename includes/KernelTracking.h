@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OpenClDefs.h"
 #include "clang/AST/Expr.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
@@ -23,15 +24,15 @@ public:
   struct KernelInfo {
     std::string funcName;
     std::vector<const clang::CallExpr *> args;
-    std::vector<const clang::CallExpr *> launches;
+    std::vector<std::pair<const clang::CallExpr *, OpenCL::HostFuncs>> launches;
   };
-
   KernelLaunchTracker() {}
 
   void InsertArg(const clang::ValueDecl *kernelDecl,
                  const clang::CallExpr *callExpr);
   void InsertLaunch(const clang::ValueDecl *kernelDecl,
-                    const clang::CallExpr *callExpr);
+                    const clang::CallExpr *callExpr,
+                    OpenCL::HostFuncs funcType);
   void InsertName(const clang::ValueDecl *kernelDecl, std::string kernelName);
 
   void Finalise(const clang::SourceManager &SM);
@@ -41,5 +42,6 @@ public:
   }
 
 private:
+  using KLaunch = std::pair<const clang::CallExpr *, OpenCL::HostFuncs>;
   std::map<const clang::ValueDecl *, KernelInfo> m_tracker;
 };

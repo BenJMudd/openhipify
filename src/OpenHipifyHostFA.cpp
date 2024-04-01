@@ -88,7 +88,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       kDef = &kFuncMapIter->second;
     }
 
-    auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
+    auto HandlLaunchExpr = [&](KernelLaunch kLaunch) {
+      const CallExpr *launchKernelExpr = kLaunch.first;
       if (!argsFinalised) {
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
@@ -340,7 +341,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         baseScopeExpr = *argIter;
       }
 
-      auto CheckScope = [&](const CallExpr *expr) -> bool {
+      auto CheckScope = [&](const Expr *expr) -> bool {
         auto *exprScopeStmt = SearchParentScope(expr);
         if (exprScopeStmt != baseScopeStmt) {
           ERR_BOLD_STR << sOpenHipify;
@@ -365,7 +366,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       if (isAllArgsProcessed) {
         // Handle dangling launches
-        if (!CheckScope(*launchIter)) {
+        if (!CheckScope(launchIter->first)) {
           launchIter++;
           continue;
         }
@@ -388,7 +389,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       const CallExpr *setArgExpr = *argIter;
-      const CallExpr *launchKernelExpr = *launchIter;
+      KernelLaunch kLaunch = *launchIter;
+      const CallExpr *launchKernelExpr = kLaunch.first;
       unsigned argPos = SM->getFileOffset(setArgExpr->getBeginLoc());
       unsigned launchPos = SM->getFileOffset(launchKernelExpr->getBeginLoc());
       if (argPos < launchPos) {
@@ -405,7 +407,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
           continue;
         }
 
-        HandlLaunchExpr(launchKernelExpr);
+        HandlLaunchExpr(kLaunch);
         launchIter++;
       }
     }
@@ -779,12 +781,13 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clSetKernelArg: {
     return TrackKernelSetArg(callExpr);
   } break;
+  case OpenCL::HostFuncs::clEnqueueTask:
   case OpenCL::HostFuncs::clEnqueueNDRangeKernel: {
-    return TrackKernelLaunch(callExpr);
-  }
+    return TrackKernelLaunch(callExpr, func);
+  } break;
   case OpenCL::HostFuncs::clCreateKernel: {
     return TrackKernelCreate(callExpr);
-  }
+  } break;
   default: {
   } break;
   }
@@ -839,13 +842,14 @@ bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
   return true;
 }
 
-bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
+bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr,
+                                         OpenCL::HostFuncs func) {
   const ValueDecl *kernelDecl;
   if (!ExtractKernelDeclFromArg(callExpr, 1, &kernelDecl)) {
     return false;
   }
 
-  m_kernelTracker.InsertLaunch(kernelDecl, callExpr);
+  m_kernelTracker.InsertLaunch(kernelDecl, callExpr, func);
   return true;
 }
 
