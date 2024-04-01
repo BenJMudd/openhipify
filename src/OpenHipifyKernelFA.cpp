@@ -218,6 +218,9 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   case OpenCL::KernelFuncs::BARRIER: {
     ReplaceBARRIER(*callExpr, res);
   } break;
+  case OpenCL::KernelFuncs::DOT: {
+    ReplaceWithAuxFunction(*funcDecl, funcSearch->second);
+  } break;
   }
   return true;
 }
@@ -277,8 +280,7 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
        {funcDeclStr, fileName.str(), lineNumber, colNumber, funcArgs}});
 }
 
-void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
-                                           CharSourceRange funcNameRng,
+void OpenHipifyKernelFA::InsertAuxFunction(CharSourceRange funcNameRng,
                                            HIP::AUX_FUNC_ID func) {
 
   auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
@@ -288,10 +290,19 @@ void OpenHipifyKernelFA::InsertAuxFunction(const SourceManager &srcManager,
   const std::string &funcName = funcToInsert->second.first;
 
   // Rename the original function call to the auxiliary function
-  ct::Replacement replacementName(srcManager, funcNameRng, funcName);
+  ct::Replacement replacementName(*SM, funcNameRng, funcName);
   llvm::consumeError(m_replacements.add(replacementName));
   m_auxFunctions.insert(func);
   return;
+}
+
+bool OpenHipifyKernelFA::ReplaceWithAuxFunction(
+    const clang::FunctionDecl &funcDecl, OpenCL::KernelFuncs funcIdent) {
+  SourceRange srcRange = funcDecl.getNameInfo().getSourceRange();
+  CharSourceRange nameRange = CharSourceRange::getTokenRange(srcRange);
+  auto auxFunc = HIP::OPENCL_HIP_AUX_FUNC_MAP.find(funcIdent);
+  InsertAuxFunction(nameRange, auxFunc->second);
+  return true;
 }
 
 bool OpenHipifyKernelFA::ReplaceBARRIER(
@@ -367,10 +378,7 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   if (!dimensionArg->EvaluateAsInt(dimensionFold, *ctx)) {
     // Can't fold, insert and call an auxiliary function
     const FunctionDecl &funcDecl = *callExpr.getDirectCallee();
-    SourceRange srcRange = funcDecl.getNameInfo().getSourceRange();
-    CharSourceRange nameRange = CharSourceRange::getTokenRange(srcRange);
-    auto auxFunc = HIP::OPENCL_HIP_AUX_FUNC_MAP.find(funcIdent);
-    InsertAuxFunction(*res.SourceManager, nameRange, auxFunc->second);
+    ReplaceWithAuxFunction(funcDecl, funcIdent);
     return true;
   }
 
