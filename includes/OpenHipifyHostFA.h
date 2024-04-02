@@ -119,6 +119,7 @@ private:
   const clang::BinaryOperator *GetBinaryExprParent(const clang::Expr *base);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
   void RemoveBinExprIfPossible(const clang::Expr *base);
+  void EnsureBinExprIsAssign(const clang::Expr *base);
 
   bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);

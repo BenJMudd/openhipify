@@ -54,6 +54,7 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
                                     hasType(asString(OpenCL::CL_DEVICE_ID)),
                                     hasType(asString(OpenCL::CL_PLATFORM_ID)),
                                     hasType(asString(OpenCL::CL_COMMAND_QUEUE)),
+                                    hasType(asString(OpenCL::CL_UINT)),
                                     hasType(asString(OpenCL::CL_INT))))))
                            .bind(B_DECL_STMT_CULL),
                        this);
@@ -614,7 +615,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   const char *searchStr = strstr(declStr.c_str(), varName.c_str());
   while (searchStr) {
     char nextChar = *(searchStr + varName.length());
-    if (nextChar != '\0' || isalpha(nextChar)) {
+    if (isalpha(nextChar)) {
       searchStr = strstr(searchStr + 1, varName.c_str());
       continue;
     }
@@ -766,14 +767,14 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
 
   // test if error is checked
 
-  RemoveBinExprIfPossible(callExpr);
+  EnsureBinExprIsAssign(callExpr);
   return true;
 }
 
 bool OpenHipifyHostFA::ReplaceReleaseMemObject(
     const clang::CallExpr *callExpr) {
   RewriteFuncName(callExpr, HIP::FREE);
-  RemoveBinExprIfPossible(callExpr);
+  EnsureBinExprIsAssign(callExpr);
   return false;
 }
 
@@ -938,7 +939,8 @@ void OpenHipifyHostFA::GenerateGenericKernelLaunch(
     const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
     std::set<std::string> &kernelFilesUsed) {
   // Replace function name with hip equivalent
-  SourceLocation funcNameBLoc = launchKernelExpr->getBeginLoc();
+  SourceLocation funcNameBLoc =
+      GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
   SourceLocation funcNameELoc =
       LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
   CharSourceRange nameReplRng =
@@ -1197,6 +1199,23 @@ void OpenHipifyHostFA::RemoveBinExprIfPossible(const clang::Expr *base) {
   SourceLocation binEnd = base->getBeginLoc();
   CharSourceRange binRng = CharSourceRange::getCharRange(binStart, binEnd);
   ct::Replacement binRepl(*SM, binRng, "");
+  llvm::consumeError(m_replacements.add(binRepl));
+}
+
+void OpenHipifyHostFA::EnsureBinExprIsAssign(const clang::Expr *base) {
+  const BinaryOperator *binOp = GetBinaryExprParent(base);
+  if (!binOp) {
+    return;
+  }
+
+  if (binOp->getOpcode() == BO_Assign)
+    return;
+
+  const Expr *lhs = binOp->getLHS();
+  SourceLocation binStart = lhs->getExprLoc();
+  SourceLocation binEnd = binOp->getRHS()->getExprLoc();
+  CharSourceRange binRng = CharSourceRange::getCharRange(binStart, binEnd);
+  ct::Replacement binRepl(*SM, binRng, ExprToStr(lhs) + "=");
   llvm::consumeError(m_replacements.add(binRepl));
 }
 
