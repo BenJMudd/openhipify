@@ -19,8 +19,8 @@ git clone https://github.com/benjmudd/openhipify
 3. Proceed with standard installation process (Found on [LibTooling](https://clang.llvm.org/docs/LibASTMatchersTutorial.html) documentation)
 
 ```bash
-// ADD EXTRA STEPS
 cd /llvm_project
+echo "add_clang_subdirectory(openhipify)" > clang/tools/CMakeLists.txt
 mkdir build && cd build
 cmake -G Ninja ../llvm-project/llvm -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" -DCMAKE_BUILD_TYPE=Release -DLLVM_BUILD_TESTS=ON
 ninja openhipify
@@ -45,6 +45,5 @@ openhipify host.c kernel.cl --
 Multiple host and kernel files can be inputted in any order into the tool. Each will be
 translated into a HIP file with the same name, with an extra .cpp extention (i.e. kernel.cl -> kernel.cl.cpp)
 
-When combining host and kernel files, header files will also be produced for kernel files in order
-to expose kernels launched in corresponding host files:
-![Showcase of header generation](headergen.png)
+Examples of full translation can be found at the 
+[Openipify test suite](https://github.com/BenJMudd/openhipify-test-suite).
