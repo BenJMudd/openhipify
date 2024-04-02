@@ -20,6 +20,7 @@ public:
   // file name -> (kernel name -> kernel definition)
   using KernelIncludeTracker =
       std::map<std::string, std::map<std::string, std::string>>;
+  using KernelLaunch = std::pair<const clang::CallExpr *, OpenCL::HostFuncs>;
 
   explicit OpenHipifyHostFA(
       ct::Replacements &replacements,
@@ -30,6 +31,16 @@ public:
         m_kernelIncludeTracker(kernelIncludeTracker) {}
 
 private:
+  struct ArgInfo {
+    ArgInfo(std::string str, bool stripped, bool cast)
+        : argStr(str), isAddrOpStripped(stripped), toCast(cast) {}
+    ArgInfo() : isAddrOpStripped(false), toCast(false) {}
+
+    std::string argStr;
+    bool isAddrOpStripped;
+    bool toCast;
+  };
+
   void run(const ASTMatch::MatchFinder::MatchResult &res) override;
 
   std::unique_ptr<clang::ASTConsumer>
@@ -64,11 +75,29 @@ private:
 
   // Kernel function call replacements
   bool TrackKernelSetArg(const clang::CallExpr *callExpr);
-  bool TrackKernelLaunch(const clang::CallExpr *callExpr);
+  bool TrackKernelLaunch(const clang::CallExpr *callExpr,
+                         OpenCL::HostFuncs func);
   bool TrackKernelCreate(const clang::CallExpr *callExpr);
   bool TrackKernelCreateBinop(const clang::CallExpr *callExpr,
                               const clang::BinaryOperator *binOp,
                               std::string kernelName);
+
+  void GenerateNDKernelLaunch(const clang::CallExpr *launchKernelExpr,
+                              const KernelLaunchTracker::KernelInfo &kInfo,
+                              const KernelDefinition *kDef,
+                              const std::vector<ArgInfo> &args,
+                              std::set<std::string> &kernelFilesUsed);
+  void GenerateEnqueueTaskLaunch(const clang::CallExpr *launchKernelExpr,
+                                 const KernelLaunchTracker::KernelInfo &kInfo,
+                                 const KernelDefinition *kDef,
+                                 const std::vector<ArgInfo> &args,
+                                 std::set<std::string> &kernelFilesUsed);
+  void GenerateGenericKernelLaunch(
+      const clang::CallExpr *launchKernelExpr, const std::string &numBlocks,
+      const std::string &blockSize, bool nBlockAddrStripped,
+      bool sBlockAddrStripped, const KernelLaunchTracker::KernelInfo &kInfo,
+      const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
+      std::set<std::string> &kernelFilesUsed);
 
   // Generic function call replacements
   bool ReplaceGetKWGGeneric(const clang::CallExpr &callExpr);

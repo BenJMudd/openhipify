@@ -58,15 +58,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
     // [..(arg expression string, has addr op stripped)]
-    struct ArgInfo {
-      ArgInfo(std::string str, bool stripped, bool cast)
-          : argStr(str), isAddrOpStripped(stripped), toCast(cast) {}
-      ArgInfo() : isAddrOpStripped(false), toCast(false) {}
-
-      std::string argStr;
-      bool isAddrOpStripped;
-      bool toCast;
-    };
 
     std::vector<ArgInfo> args;
     std::vector<bool> argsUse;
@@ -88,7 +79,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       kDef = &kFuncMapIter->second;
     }
 
-    auto HandlLaunchExpr = [&](const CallExpr *launchKernelExpr) {
+    auto HandlLaunchExpr = [&](KernelLaunch kLaunch) {
+      const CallExpr *launchKernelExpr = kLaunch.first;
       if (!argsFinalised) {
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
@@ -134,104 +126,12 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         args.resize(numArgs);
         argsFinalised = true;
       }
-
-      // Handle launching kernel case
-      // Extract arg 4,5 for dimensions
-      const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
-      const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
-
-      std::string numBlocksStr;
-      bool isNumBlocksAddrStripped =
-          StripAddressOfVar(numBlocksExpr, numBlocksStr);
-      std::string blockSizeStr;
-      bool isBlockSizeAddrStripped =
-          StripAddressOfVar(blockSizeExpr, blockSizeStr);
-
-      // Replace function name with hip equivalent
-      SourceLocation funcNameBLoc =
-          GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
-      SourceLocation funcNameELoc =
-          LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
-      CharSourceRange nameReplRng =
-          CharSourceRange::getCharRange(funcNameBLoc, funcNameELoc);
-
-      ct::Replacement nameReplacement(*SM, nameReplRng, HIP::LAUNCHKERNELGGL);
-      llvm::consumeError(m_replacements.add(nameReplacement));
-
-      // Construct new args
-      std::string launchKernelArgs;
-      llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
-      launchKernelArgsStr << kInfo.funcName << ","
-                          << "dim3(";
-      if (isNumBlocksAddrStripped) {
-        launchKernelArgsStr << numBlocksStr << "),";
-      } else {
-        launchKernelArgsStr << "*(" << numBlocksStr << ")),";
-      }
-
-      launchKernelArgsStr << "dim3(";
-      if (isBlockSizeAddrStripped) {
-        launchKernelArgsStr << blockSizeStr << "),";
-      } else {
-        launchKernelArgsStr << "*(" << blockSizeStr << ")),";
-      }
-
-      launchKernelArgsStr << "0,0";
-
-      // Append extracted args
-      for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
-        launchKernelArgsStr << ",";
-        if (args[argIdx].toCast) {
-          if (kDef) {
-            std::string typeToCast = kDef->argTypes[argIdx];
-            launchKernelArgsStr << "(" << typeToCast << ")";
-          } else {
-            ERR_BOLD_STR << sOpenHipify;
-            llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
-            ERR_BOLD_STR << "Unable to generate cast for cl_mem argument '"
-                         << args[argIdx].argStr << "' for kernel '"
-                         << kInfo.funcName
-                         << "' during launch. Include the definition in the "
-                            "transpilation "
-                            "process to generate cast.\n";
-            // Extra kernel error messagin
-            std::string kernelNameExtrInfo;
-            llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
-            kernelNameExtrInfoStr << "kernel: " << kInfo.funcName
-                                  << " (untracked)";
-
-            PrettyError(
-                {launchKernelExpr->getArg(1)->getBeginLoc(),
-                 launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(
-                     -1)},
-                raw_ostream::YELLOW, kernelNameExtrInfoStr.str());
-          }
-        }
-
-        if (args[argIdx].isAddrOpStripped) {
-          launchKernelArgsStr << args[argIdx].argStr;
-        } else {
-          launchKernelArgsStr << "*(" << args[argIdx].argStr << ")";
-        }
-      }
-
-      // remove args, and replace
-      SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
-      SourceLocation argEnd = launchKernelExpr->getEndLoc();
-      CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
-      ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
-      llvm::consumeError(m_replacements.add(argsRepl));
-
-      // Track kernel launch for future include file generation
-      if (kDef) {
-        std::map<std::string, std::string> &includeDefs =
-            m_kernelIncludeTracker[kDef->fileName];
-        auto includeIter = includeDefs.find(kInfo.funcName);
-        if (includeIter == includeDefs.end()) {
-          includeDefs[kInfo.funcName] = kDef->functionDef;
-        }
-
-        kernelFilesUsed.insert(kDef->fileName);
+      if (kLaunch.second == OpenCL::HostFuncs::clEnqueueNDRangeKernel) {
+        GenerateNDKernelLaunch(launchKernelExpr, kInfo, kDef, args,
+                               kernelFilesUsed);
+      } else if (kLaunch.second == OpenCL::HostFuncs::clEnqueueTask) {
+        GenerateEnqueueTaskLaunch(launchKernelExpr, kInfo, kDef, args,
+                                  kernelFilesUsed);
       }
     };
 
@@ -340,7 +240,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         baseScopeExpr = *argIter;
       }
 
-      auto CheckScope = [&](const CallExpr *expr) -> bool {
+      auto CheckScope = [&](const Expr *expr) -> bool {
         auto *exprScopeStmt = SearchParentScope(expr);
         if (exprScopeStmt != baseScopeStmt) {
           ERR_BOLD_STR << sOpenHipify;
@@ -365,7 +265,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       if (isAllArgsProcessed) {
         // Handle dangling launches
-        if (!CheckScope(*launchIter)) {
+        if (!CheckScope(launchIter->first)) {
           launchIter++;
           continue;
         }
@@ -388,7 +288,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       const CallExpr *setArgExpr = *argIter;
-      const CallExpr *launchKernelExpr = *launchIter;
+      KernelLaunch kLaunch = *launchIter;
+      const CallExpr *launchKernelExpr = kLaunch.first;
       unsigned argPos = SM->getFileOffset(setArgExpr->getBeginLoc());
       unsigned launchPos = SM->getFileOffset(launchKernelExpr->getBeginLoc());
       if (argPos < launchPos) {
@@ -405,7 +306,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
           continue;
         }
 
-        HandlLaunchExpr(launchKernelExpr);
+        HandlLaunchExpr(kLaunch);
         launchIter++;
       }
     }
@@ -623,12 +524,33 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!varRef)
     return false;
 
-  const ValueDecl *varDecl = varRef->getDecl();
+  const ValueDecl *valDecl = varRef->getDecl();
+  if (!valDecl)
+    return false;
+
+  const VarDecl *varDecl = dyn_cast<VarDecl>(valDecl);
   if (!varDecl)
     return false;
 
+  std::string varName = varRef->getNameInfo().getName().getAsString();
+  std::string declStr = DeclToStr(varDecl);
+  const char *searchStr = strstr(declStr.c_str(), varName.c_str());
+  while (searchStr) {
+    if (isalpha(*(searchStr + varName.length() + 1))) {
+      searchStr = strstr(searchStr + 1, varName.c_str());
+      continue;
+    }
+    break;
+  }
+
+  if (!searchStr) {
+    return false;
+  }
+  unsigned offset = searchStr - declStr.c_str();
+
   // prefixing with pointer type
-  ct::Replacement ptrRepl(*SM, varDecl->getEndLoc(), 0, "*");
+  ct::Replacement ptrRepl(*SM, varDecl->getBeginLoc().getLocWithOffset(offset),
+                          0, "*");
   llvm::consumeError(m_replacements.add(ptrRepl));
 
   std::string varDeclStr = DeclToStr(varDecl);
@@ -654,7 +576,6 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   ct::Replacement binOpRepl(*SM, binOpRng, "");
   llvm::consumeError(m_replacements.add(binOpRepl));
 
-  std::string varName = varRef->getNameInfo().getName().getAsString();
   ReplaceCreateBufferArguments(cBufExpr, varName);
   return true;
 }
@@ -779,12 +700,13 @@ bool OpenHipifyHostFA::HandleKernelFunctionCall(const CallExpr *callExpr,
   case OpenCL::HostFuncs::clSetKernelArg: {
     return TrackKernelSetArg(callExpr);
   } break;
+  case OpenCL::HostFuncs::clEnqueueTask:
   case OpenCL::HostFuncs::clEnqueueNDRangeKernel: {
-    return TrackKernelLaunch(callExpr);
-  }
+    return TrackKernelLaunch(callExpr, func);
+  } break;
   case OpenCL::HostFuncs::clCreateKernel: {
     return TrackKernelCreate(callExpr);
-  }
+  } break;
   default: {
   } break;
   }
@@ -839,13 +761,14 @@ bool OpenHipifyHostFA::TrackKernelSetArg(const CallExpr *callExpr) {
   return true;
 }
 
-bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr) {
+bool OpenHipifyHostFA::TrackKernelLaunch(const clang::CallExpr *callExpr,
+                                         OpenCL::HostFuncs func) {
   const ValueDecl *kernelDecl;
   if (!ExtractKernelDeclFromArg(callExpr, 1, &kernelDecl)) {
     return false;
   }
 
-  m_kernelTracker.InsertLaunch(kernelDecl, callExpr);
+  m_kernelTracker.InsertLaunch(kernelDecl, callExpr, func);
   return true;
 }
 
@@ -897,6 +820,124 @@ bool OpenHipifyHostFA::TrackKernelCreateBinop(
   m_kernelTracker.InsertName(kernelDecl, kernelName);
   RemoveExprFromSource(binOp);
   return true;
+}
+
+void OpenHipifyHostFA::GenerateNDKernelLaunch(
+    const clang::CallExpr *launchKernelExpr,
+    const KernelLaunchTracker::KernelInfo &kInfo, const KernelDefinition *kDef,
+    const std::vector<ArgInfo> &args, std::set<std::string> &kernelFilesUsed) {
+  // Handle launching kernel case
+  // Extract arg 4,5 for dimensions
+  const Expr *numBlocksExpr = launchKernelExpr->getArg(4);
+  const Expr *blockSizeExpr = launchKernelExpr->getArg(5);
+
+  std::string numBlocksStr;
+  bool isNumBlocksAddrStripped = StripAddressOfVar(numBlocksExpr, numBlocksStr);
+  std::string blockSizeStr;
+  bool isBlockSizeAddrStripped = StripAddressOfVar(blockSizeExpr, blockSizeStr);
+  GenerateGenericKernelLaunch(launchKernelExpr, numBlocksStr, blockSizeStr,
+                              isNumBlocksAddrStripped, isBlockSizeAddrStripped,
+                              kInfo, kDef, args, kernelFilesUsed);
+}
+
+void OpenHipifyHostFA::GenerateEnqueueTaskLaunch(
+    const clang::CallExpr *launchKernelExpr,
+    const KernelLaunchTracker::KernelInfo &kInfo, const KernelDefinition *kDef,
+    const std::vector<ArgInfo> &args, std::set<std::string> &kernelFilesUsed) {
+  GenerateGenericKernelLaunch(launchKernelExpr, "1", "1", true, true, kInfo,
+                              kDef, args, kernelFilesUsed);
+}
+
+void OpenHipifyHostFA::GenerateGenericKernelLaunch(
+    const clang::CallExpr *launchKernelExpr, const std::string &numBlocks,
+    const std::string &blockSize, bool nBlockAddrStripped,
+    bool sBlockAddrStripped, const KernelLaunchTracker::KernelInfo &kInfo,
+    const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
+    std::set<std::string> &kernelFilesUsed) {
+  // Replace function name with hip equivalent
+  SourceLocation funcNameBLoc =
+      GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
+  SourceLocation funcNameELoc =
+      LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
+  CharSourceRange nameReplRng =
+      CharSourceRange::getCharRange(funcNameBLoc, funcNameELoc);
+
+  ct::Replacement nameReplacement(*SM, nameReplRng, HIP::LAUNCHKERNELGGL);
+  llvm::consumeError(m_replacements.add(nameReplacement));
+
+  // Construct new args
+  std::string launchKernelArgs;
+  llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
+  launchKernelArgsStr << kInfo.funcName << ","
+                      << "dim3(";
+  if (nBlockAddrStripped) {
+    launchKernelArgsStr << numBlocks << "),";
+  } else {
+    launchKernelArgsStr << "*(" << numBlocks << ")),";
+  }
+
+  launchKernelArgsStr << "dim3(";
+  if (sBlockAddrStripped) {
+    launchKernelArgsStr << blockSize << "),";
+  } else {
+    launchKernelArgsStr << "*(" << blockSize << ")),";
+  }
+
+  launchKernelArgsStr << "0,0";
+
+  // Append extracted args
+  for (size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
+    launchKernelArgsStr << ",";
+    if (args[argIdx].toCast) {
+      if (kDef) {
+        std::string typeToCast = kDef->argTypes[argIdx];
+        launchKernelArgsStr << "(" << typeToCast << ")";
+      } else {
+        ERR_BOLD_STR << sOpenHipify;
+        llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+        ERR_BOLD_STR << "Unable to generate cast for cl_mem argument '"
+                     << args[argIdx].argStr << "' for kernel '"
+                     << kInfo.funcName
+                     << "' during launch. Include the definition in the "
+                        "transpilation "
+                        "process to generate cast.\n";
+        // Extra kernel error messagin
+        std::string kernelNameExtrInfo;
+        llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
+        kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " (untracked)";
+
+        PrettyError(
+            {launchKernelExpr->getArg(1)->getBeginLoc(),
+             launchKernelExpr->getArg(2)->getBeginLoc().getLocWithOffset(-1)},
+            raw_ostream::YELLOW, kernelNameExtrInfoStr.str());
+      }
+    }
+
+    if (args[argIdx].isAddrOpStripped) {
+      launchKernelArgsStr << args[argIdx].argStr;
+    } else {
+      launchKernelArgsStr << "*(" << args[argIdx].argStr << ")";
+    }
+  }
+
+  // remove args, and replace
+  SourceLocation argStart = launchKernelExpr->getArg(0)->getExprLoc();
+  SourceLocation argEnd = launchKernelExpr->getEndLoc();
+  CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
+  ct::Replacement argsRepl(*SM, argRng, launchKernelArgsStr.str());
+  llvm::consumeError(m_replacements.add(argsRepl));
+
+  // Track kernel launch for future include file generation
+  if (kDef) {
+    std::map<std::string, std::string> &includeDefs =
+        m_kernelIncludeTracker[kDef->fileName];
+    auto includeIter = includeDefs.find(kInfo.funcName);
+    if (includeIter == includeDefs.end()) {
+      includeDefs[kInfo.funcName] = kDef->functionDef;
+    }
+
+    kernelFilesUsed.insert(kDef->fileName);
+  }
 }
 
 bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {

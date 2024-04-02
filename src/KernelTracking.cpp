@@ -9,9 +9,10 @@ void KernelLaunchTracker::InsertArg(const ValueDecl *kernelDecl,
 }
 
 void KernelLaunchTracker::InsertLaunch(const ValueDecl *kernelDecl,
-                                       const CallExpr *launchExpr) {
+                                       const CallExpr *launchExpr,
+                                       OpenCL::HostFuncs funcType) {
   KernelInfo &kernel = m_tracker[kernelDecl];
-  kernel.launches.emplace_back(launchExpr);
+  kernel.launches.emplace_back(launchExpr, funcType);
 }
 
 void KernelLaunchTracker::InsertName(const ValueDecl *kernelDecl,
@@ -30,8 +31,14 @@ void KernelLaunchTracker::Finalise(const SourceManager &SM) {
     return lhsOffset < rhsOffset;
   };
 
+  auto SortKernelLaunch = [&](KLaunch lhs, KLaunch rhs) {
+    unsigned lhsOffset = SM.getFileOffset(lhs.first->getBeginLoc());
+    unsigned rhsOffset = SM.getFileOffset(rhs.first->getBeginLoc());
+    return lhsOffset < rhsOffset;
+  };
+
   for (auto &[kernelDecl, kInfo] : m_tracker) {
     std::sort(kInfo.args.begin(), kInfo.args.end(), SortCallExpr);
-    std::sort(kInfo.launches.begin(), kInfo.launches.end(), SortCallExpr);
+    std::sort(kInfo.launches.begin(), kInfo.launches.end(), SortKernelLaunch);
   }
 }
