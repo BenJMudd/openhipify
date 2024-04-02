@@ -145,6 +145,7 @@ const std::string MEMCPY = "hipMemcpy";
 const std::string FREE = "hipFree";
 const std::string LAUNCHKERNELGGL = "hipLaunchKernelGGL";
 // Types
+const std::string ERROR = "hipError_t";
 const std::string VOID_PTR = "void*";
 const std::string VOID = "void";
 const std::string VOID_PTR_PTR_CAST = "(void**)";

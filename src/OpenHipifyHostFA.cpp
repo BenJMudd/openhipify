@@ -37,17 +37,17 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
       this);
 
   // removal of redundant variable declarations
-  m_finder->addMatcher(
-      declStmt(isExpansionInMainFile(),
-               hasDescendant(
-                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
-                                 hasType(asString(OpenCL::CL_PROGRAM)),
-                                 hasType(asString(OpenCL::CL_KERNEL)),
-                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
-                                 hasType(asString(OpenCL::CL_PLATFORM_ID)),
-                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
-          .bind(B_DECL_STMT_CULL),
-      this);
+  m_finder->addMatcher(declStmt(isExpansionInMainFile(),
+                                hasDescendant(varDecl(anyOf(
+                                    hasType(asString(OpenCL::CL_CONTEXT)),
+                                    hasType(asString(OpenCL::CL_PROGRAM)),
+                                    hasType(asString(OpenCL::CL_KERNEL)),
+                                    hasType(asString(OpenCL::CL_DEVICE_ID)),
+                                    hasType(asString(OpenCL::CL_PLATFORM_ID)),
+                                    hasType(asString(OpenCL::CL_COMMAND_QUEUE)),
+                                    hasType(asString(OpenCL::CL_INT))))))
+                           .bind(B_DECL_STMT_CULL),
+                       this);
 
   return m_finder->newASTConsumer();
 }
@@ -428,6 +428,23 @@ bool OpenHipifyHostFA::DeclarationStmt(
   const DeclStmt *declToCull = res.Nodes.getNodeAs<DeclStmt>(B_DECL_STMT_CULL);
   if (!declToCull) {
     return false;
+  }
+
+  std::string type;
+  if (ExtractType(*(declToCull->decl_begin()), type) &&
+      type == OpenCL::CL_INT) {
+    // Rename cl_int to hipError_t for use in future error cases
+    SourceLocation typeBeginLoc = declToCull->getBeginLoc();
+    auto slIter = m_clIntRenames.find(typeBeginLoc);
+    if (slIter == m_clIntRenames.end()) {
+      // Type not renamed
+      m_clIntRenames.insert(typeBeginLoc);
+      ct::Replacement errRepl(*SM, typeBeginLoc, OpenCL::CL_INT.length(),
+                              HIP::ERROR);
+      llvm::consumeError(m_replacements.add(errRepl));
+    }
+
+    return true;
   }
 
   RemoveStmtRangeFromSource(declToCull->getSourceRange());
@@ -1137,6 +1154,17 @@ bool OpenHipifyHostFA::StripAddressOfVar(const Expr *var, std::string &ret) {
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
   CharSourceRange rng = CharSourceRange::getTokenRange(expr->getSourceRange());
   return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+}
+
+bool OpenHipifyHostFA::ExtractType(const clang::Decl *decl, std::string &ret) {
+  std::string declStr = DeclToStr(decl);
+  size_t spaceIdx = declStr.find(' ');
+  if (spaceIdx == std::string::npos) {
+    return false;
+  }
+
+  ret = declStr.substr(0, spaceIdx);
+  return true;
 }
 
 std::string OpenHipifyHostFA::DeclToStr(const clang::Decl *decl) {

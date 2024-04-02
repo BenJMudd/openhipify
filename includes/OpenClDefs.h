@@ -62,6 +62,7 @@ const std::string CL_MEM = "cl_mem";
 const std::string CL_PROGRAM = "cl_program";
 const std::string CL_PLATFORM_ID = "cl_platform_id";
 const std::string CL_DEVICE_ID = "cl_device_id";
+const std::string CL_INT = "cl_int";
 const std::string CL_KERNEL = "cl_kernel";
 const std::string CL_CONTEXT = "cl_context";
 const std::string CL_COMMAND_QUEUE = "cl_command_queue";

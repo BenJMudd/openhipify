@@ -118,6 +118,7 @@ private:
 
   bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);
+  bool ExtractType(const clang::Decl *decl, std::string &ret);
   std::string DeclToStr(const clang::Decl *decl);
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
@@ -129,6 +130,7 @@ private:
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
   std::vector<const clang::Stmt *> m_dPropScopes;
+  std::set<clang::SourceLocation> m_clIntRenames;
 
   std::set<unsigned> m_varTypeRenameLocs;
   ct::Replacements &m_replacements;
