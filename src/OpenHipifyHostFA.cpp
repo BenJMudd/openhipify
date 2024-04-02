@@ -537,10 +537,12 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   std::string declStr = DeclToStr(varDecl);
   const char *searchStr = strstr(declStr.c_str(), varName.c_str());
   while (searchStr) {
-    if (isalpha(*(searchStr + varName.length() + 1))) {
+    char nextChar = *(searchStr + varName.length());
+    if (nextChar != '\0' || isalpha(nextChar)) {
       searchStr = strstr(searchStr + 1, varName.c_str());
       continue;
     }
+
     break;
   }
 
