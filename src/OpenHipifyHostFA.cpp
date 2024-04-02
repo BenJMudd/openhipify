@@ -534,24 +534,34 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
+  const Expr *errExpr = callExpr->getArg(4);
+  std::string errStr;
+  std::string strippedErr;
+  if (StripAddressOfVar(errExpr, strippedErr)) {
+    errStr = strippedErr;
+  } else {
+    errStr = "*(" + ExprToStr(errExpr) + ")";
+  }
+
   const auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab parent of callExpr
   // TODO: Support other cases than just vardecl, e.g. binary expression
   const BinaryOperator *binOp;
   binOp = callExprParIter->get<BinaryOperator>();
   if (binOp)
-    return ReplaceCreateBufferBinOp(callExpr, binOp);
+    return ReplaceCreateBufferBinOp(callExpr, binOp, errStr);
 
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
   if (varDecl)
-    return ReplaceCreateBufferVarDecl(callExpr, varDecl);
+    return ReplaceCreateBufferVarDecl(callExpr, varDecl, errStr);
 
   return false;
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
-    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl) {
+    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl,
+    const std::string &errVar) {
   // Renaming the type from cl_mem -> void*
   SourceLocation typeBeginLoc = varDecl->getBeginLoc();
   std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
@@ -574,7 +584,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
       LexForTokenLocation(varDecl->getBeginLoc(), clang::tok::equal);
   std::string splitExpr;
   llvm::raw_string_ostream splitExprStr(splitExpr);
-  splitExprStr << HIP::EOL;
+  splitExprStr << HIP::EOL << errVar << "=";
 
   // cl_mem mem = clCreateBuffer(...);
   // cl_mem mem ; clCreateBuffer(...);
@@ -585,7 +595,8 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
-    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp) {
+    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp,
+    const std::string &errVar) {
   const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
   if (!varRef)
     return false;
@@ -641,7 +652,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   SourceLocation binOpEndLoc = binOp->getRHS()->getExprLoc();
   CharSourceRange binOpRng =
       CharSourceRange::getCharRange(binOpBeginLoc, binOpEndLoc);
-  ct::Replacement binOpRepl(*SM, binOpRng, "");
+  ct::Replacement binOpRepl(*SM, binOpRng, errVar + "=");
   llvm::consumeError(m_replacements.add(binOpRepl));
 
   ReplaceCreateBufferArguments(cBufExpr, varName);
@@ -754,6 +765,7 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
   llvm::consumeError(m_replacements.add(argsRepl));
 
   // test if error is checked
+
   RemoveBinExprIfPossible(callExpr);
   return true;
 }
@@ -926,8 +938,7 @@ void OpenHipifyHostFA::GenerateGenericKernelLaunch(
     const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
     std::set<std::string> &kernelFilesUsed) {
   // Replace function name with hip equivalent
-  SourceLocation funcNameBLoc =
-      GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
+  SourceLocation funcNameBLoc = launchKernelExpr->getBeginLoc();
   SourceLocation funcNameELoc =
       LexForTokenLocation(funcNameBLoc, clang::tok::l_paren);
   CharSourceRange nameReplRng =
@@ -1160,10 +1171,15 @@ bool OpenHipifyHostFA::IsInScope(const clang::Stmt &base,
   return false;
 }
 
+const clang::BinaryOperator *
+OpenHipifyHostFA::GetBinaryExprParent(const clang::Expr *base) {
+  auto parentNode = AST->getParents(*base);
+  return parentNode.begin()->get<clang::BinaryOperator>();
+}
+
 const clang::Expr *
 OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
-  auto parentNode = AST->getParents(*base);
-  const Expr *binOp = parentNode.begin()->get<clang::BinaryOperator>();
+  const Expr *binOp = GetBinaryExprParent(base);
   if (binOp) {
     return binOp;
   }

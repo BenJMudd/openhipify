@@ -64,9 +64,11 @@ private:
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
   bool ReplaceCreateBufferVarDecl(const clang::CallExpr *cBufExpr,
-                                  const clang::VarDecl *varDecl);
+                                  const clang::VarDecl *varDecl,
+                                  const std::string &errVar);
   bool ReplaceCreateBufferBinOp(const clang::CallExpr *cBufExpr,
-                                const clang::BinaryOperator *binOp);
+                                const clang::BinaryOperator *binOp,
+                                const std::string &errVar);
   void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
                                     std::string varName);
   void ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
@@ -114,6 +116,7 @@ private:
 
   const clang::Stmt *SearchParentScope(const clang::Stmt *base);
   bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
+  const clang::BinaryOperator *GetBinaryExprParent(const clang::Expr *base);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
   void RemoveBinExprIfPossible(const clang::Expr *base);
 
