@@ -455,7 +455,15 @@ bool OpenHipifyHostFA::DeclarationStmt(
                               HIP::ERROR);
       llvm::consumeError(m_replacements.add(errRepl));
     }
+    if (!declToCull->isSingleDecl()) {
+      llvm::errs() << sOpenHipify << sWarn
+                   << "Multiple cl_int declarations not supported currently\n";
+      return true;
+    }
 
+    ct::Replacement succInclusion(*SM, declToCull->getEndLoc(), 0,
+                                  " = hipSuccess");
+    llvm::consumeError(m_replacements.add(succInclusion));
     return true;
   }
 
