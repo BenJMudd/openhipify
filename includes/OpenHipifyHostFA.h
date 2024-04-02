@@ -51,6 +51,7 @@ private:
   bool VariableDeclaration(const ASTMatch::MatchFinder::MatchResult &res);
   bool DeclarationStmt(const ASTMatch::MatchFinder::MatchResult &res);
   bool BinaryOpDeclRef(const ASTMatch::MatchFinder::MatchResult &res);
+  bool ErrorComparison(const ASTMatch::MatchFinder::MatchResult &res);
 
   bool HandleMemoryFunctionCall(const clang::CallExpr *callExpr,
                                 OpenCL::HostFuncs func);
@@ -63,9 +64,11 @@ private:
   // Memory function call replacements
   bool ReplaceCreateBuffer(const clang::CallExpr *callExpr);
   bool ReplaceCreateBufferVarDecl(const clang::CallExpr *cBufExpr,
-                                  const clang::VarDecl *varDecl);
+                                  const clang::VarDecl *varDecl,
+                                  const std::string &errVar);
   bool ReplaceCreateBufferBinOp(const clang::CallExpr *cBufExpr,
-                                const clang::BinaryOperator *binOp);
+                                const clang::BinaryOperator *binOp,
+                                const std::string &errVar);
   void ReplaceCreateBufferArguments(const clang::CallExpr *callExpr,
                                     std::string varName);
   void ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
@@ -113,11 +116,14 @@ private:
 
   const clang::Stmt *SearchParentScope(const clang::Stmt *base);
   bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
+  const clang::BinaryOperator *GetBinaryExprParent(const clang::Expr *base);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
   void RemoveBinExprIfPossible(const clang::Expr *base);
+  void EnsureBinExprIsAssign(const clang::Expr *base);
 
   bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);
+  bool ExtractType(const clang::Decl *decl, std::string &ret);
   std::string DeclToStr(const clang::Decl *decl);
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
@@ -129,6 +135,7 @@ private:
   // kernel name -> kernel def
   std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
   std::vector<const clang::Stmt *> m_dPropScopes;
+  std::set<clang::SourceLocation> m_clIntRenames;
 
   std::set<unsigned> m_varTypeRenameLocs;
   ct::Replacements &m_replacements;

@@ -12,6 +12,7 @@ const StringRef B_VAR_DECL = "varDecl";
 const StringRef B_DECL_STMT_CULL = "declStmt";
 const StringRef B_VAR_DECL_CULL = "varDeclCull";
 const StringRef B_BIN_OP_REF = "binOpRef";
+const StringRef B_ERROR = "bError";
 #define ERR_BOLD_STR llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
 
 std::unique_ptr<ASTConsumer>
@@ -36,18 +37,27 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
           .bind(B_BIN_OP_REF),
       this);
 
-  // removal of redundant variable declarations
+  // match on error statements (e.g. ret == CL_SUCCESS)
   m_finder->addMatcher(
-      declStmt(isExpansionInMainFile(),
-               hasDescendant(
-                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
-                                 hasType(asString(OpenCL::CL_PROGRAM)),
-                                 hasType(asString(OpenCL::CL_KERNEL)),
-                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
-                                 hasType(asString(OpenCL::CL_PLATFORM_ID)),
-                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
-          .bind(B_DECL_STMT_CULL),
+      binaryOperator(isComparisonOperator(), isExpansionInMainFile(),
+                     hasLHS(ignoringImpCasts(
+                         declRefExpr(hasType(asString(OpenCL::CL_INT))))))
+          .bind(B_ERROR),
       this);
+
+  // removal of redundant variable declarations
+  m_finder->addMatcher(declStmt(isExpansionInMainFile(),
+                                hasDescendant(varDecl(anyOf(
+                                    hasType(asString(OpenCL::CL_CONTEXT)),
+                                    hasType(asString(OpenCL::CL_PROGRAM)),
+                                    hasType(asString(OpenCL::CL_KERNEL)),
+                                    hasType(asString(OpenCL::CL_DEVICE_ID)),
+                                    hasType(asString(OpenCL::CL_PLATFORM_ID)),
+                                    hasType(asString(OpenCL::CL_COMMAND_QUEUE)),
+                                    hasType(asString(OpenCL::CL_UINT)),
+                                    hasType(asString(OpenCL::CL_INT))))))
+                           .bind(B_DECL_STMT_CULL),
+                       this);
 
   return m_finder->newASTConsumer();
 }
@@ -344,6 +354,9 @@ void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 
   if (BinaryOpDeclRef(res))
     return;
+
+  if (ErrorComparison(res))
+    return;
 }
 
 bool OpenHipifyHostFA::FunctionCall(
@@ -430,6 +443,31 @@ bool OpenHipifyHostFA::DeclarationStmt(
     return false;
   }
 
+  std::string type;
+  if (ExtractType(*(declToCull->decl_begin()), type) &&
+      type == OpenCL::CL_INT) {
+    // Rename cl_int to hipError_t for use in future error cases
+    SourceLocation typeBeginLoc = declToCull->getBeginLoc();
+    auto slIter = m_clIntRenames.find(typeBeginLoc);
+    if (slIter == m_clIntRenames.end()) {
+      // Type not renamed
+      m_clIntRenames.insert(typeBeginLoc);
+      ct::Replacement errRepl(*SM, typeBeginLoc, OpenCL::CL_INT.length(),
+                              HIP::ERROR);
+      llvm::consumeError(m_replacements.add(errRepl));
+    }
+    if (!declToCull->isSingleDecl()) {
+      llvm::errs() << sOpenHipify << sWarn
+                   << "Multiple cl_int declarations not supported currently\n";
+      return true;
+    }
+
+    ct::Replacement succInclusion(*SM, declToCull->getEndLoc(), 0,
+                                  " = hipSuccess");
+    llvm::consumeError(m_replacements.add(succInclusion));
+    return true;
+  }
+
   RemoveStmtRangeFromSource(declToCull->getSourceRange());
   return true;
 }
@@ -443,6 +481,34 @@ bool OpenHipifyHostFA::BinaryOpDeclRef(
   }
 
   RemoveExprFromSource(binOp);
+  return true;
+}
+
+bool OpenHipifyHostFA::ErrorComparison(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const clang::BinaryOperator *binOp =
+      res.Nodes.getNodeAs<clang::BinaryOperator>(B_ERROR);
+  if (!binOp) {
+    return false;
+  }
+
+  const Expr *rhs = binOp->getRHS();
+  Expr::EvalResult rhsEval;
+
+  if (rhs->EvaluateAsInt(rhsEval, *AST)) {
+    APSInt errCase = rhsEval.Val.getInt();
+    if (errCase == OpenCL::CL_SUCCESS_VAL) {
+      SourceLocation beginLoc = SM->getExpansionLoc(rhs->getExprLoc());
+      ct::Replacement rhsRepl(*SM, beginLoc, OpenCL::CL_SUCCESS.length(),
+                              HIP::HIP_SUCCESS);
+      llvm::consumeError(m_replacements.add(rhsRepl));
+    }
+  } else {
+    // TODO: better error
+    llvm::errs() << sOpenHipify << sErr << "Unable to evalute rhs\n";
+    return true;
+  }
+
   return true;
 }
 
@@ -469,24 +535,34 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
+  const Expr *errExpr = callExpr->getArg(4);
+  std::string errStr;
+  std::string strippedErr;
+  if (StripAddressOfVar(errExpr, strippedErr)) {
+    errStr = strippedErr;
+  } else {
+    errStr = "*(" + ExprToStr(errExpr) + ")";
+  }
+
   const auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab parent of callExpr
   // TODO: Support other cases than just vardecl, e.g. binary expression
   const BinaryOperator *binOp;
   binOp = callExprParIter->get<BinaryOperator>();
   if (binOp)
-    return ReplaceCreateBufferBinOp(callExpr, binOp);
+    return ReplaceCreateBufferBinOp(callExpr, binOp, errStr);
 
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
   if (varDecl)
-    return ReplaceCreateBufferVarDecl(callExpr, varDecl);
+    return ReplaceCreateBufferVarDecl(callExpr, varDecl, errStr);
 
   return false;
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
-    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl) {
+    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl,
+    const std::string &errVar) {
   // Renaming the type from cl_mem -> void*
   SourceLocation typeBeginLoc = varDecl->getBeginLoc();
   std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
@@ -509,7 +585,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
       LexForTokenLocation(varDecl->getBeginLoc(), clang::tok::equal);
   std::string splitExpr;
   llvm::raw_string_ostream splitExprStr(splitExpr);
-  splitExprStr << HIP::EOL;
+  splitExprStr << HIP::EOL << errVar << "=";
 
   // cl_mem mem = clCreateBuffer(...);
   // cl_mem mem ; clCreateBuffer(...);
@@ -520,7 +596,8 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
-    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp) {
+    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp,
+    const std::string &errVar) {
   const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
   if (!varRef)
     return false;
@@ -538,7 +615,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   const char *searchStr = strstr(declStr.c_str(), varName.c_str());
   while (searchStr) {
     char nextChar = *(searchStr + varName.length());
-    if (nextChar != '\0' || isalpha(nextChar)) {
+    if (isalpha(nextChar)) {
       searchStr = strstr(searchStr + 1, varName.c_str());
       continue;
     }
@@ -576,7 +653,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   SourceLocation binOpEndLoc = binOp->getRHS()->getExprLoc();
   CharSourceRange binOpRng =
       CharSourceRange::getCharRange(binOpBeginLoc, binOpEndLoc);
-  ct::Replacement binOpRepl(*SM, binOpRng, "");
+  ct::Replacement binOpRepl(*SM, binOpRng, errVar + "=");
   llvm::consumeError(m_replacements.add(binOpRepl));
 
   ReplaceCreateBufferArguments(cBufExpr, varName);
@@ -689,14 +766,15 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
   llvm::consumeError(m_replacements.add(argsRepl));
 
   // test if error is checked
-  RemoveBinExprIfPossible(callExpr);
+
+  EnsureBinExprIsAssign(callExpr);
   return true;
 }
 
 bool OpenHipifyHostFA::ReplaceReleaseMemObject(
     const clang::CallExpr *callExpr) {
   RewriteFuncName(callExpr, HIP::FREE);
-  RemoveBinExprIfPossible(callExpr);
+  EnsureBinExprIsAssign(callExpr);
   return false;
 }
 
@@ -1095,10 +1173,15 @@ bool OpenHipifyHostFA::IsInScope(const clang::Stmt &base,
   return false;
 }
 
+const clang::BinaryOperator *
+OpenHipifyHostFA::GetBinaryExprParent(const clang::Expr *base) {
+  auto parentNode = AST->getParents(*base);
+  return parentNode.begin()->get<clang::BinaryOperator>();
+}
+
 const clang::Expr *
 OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
-  auto parentNode = AST->getParents(*base);
-  const Expr *binOp = parentNode.begin()->get<clang::BinaryOperator>();
+  const Expr *binOp = GetBinaryExprParent(base);
   if (binOp) {
     return binOp;
   }
@@ -1116,6 +1199,23 @@ void OpenHipifyHostFA::RemoveBinExprIfPossible(const clang::Expr *base) {
   SourceLocation binEnd = base->getBeginLoc();
   CharSourceRange binRng = CharSourceRange::getCharRange(binStart, binEnd);
   ct::Replacement binRepl(*SM, binRng, "");
+  llvm::consumeError(m_replacements.add(binRepl));
+}
+
+void OpenHipifyHostFA::EnsureBinExprIsAssign(const clang::Expr *base) {
+  const BinaryOperator *binOp = GetBinaryExprParent(base);
+  if (!binOp) {
+    return;
+  }
+
+  if (binOp->getOpcode() == BO_Assign)
+    return;
+
+  const Expr *lhs = binOp->getLHS();
+  SourceLocation binStart = lhs->getExprLoc();
+  SourceLocation binEnd = binOp->getRHS()->getExprLoc();
+  CharSourceRange binRng = CharSourceRange::getCharRange(binStart, binEnd);
+  ct::Replacement binRepl(*SM, binRng, ExprToStr(lhs) + "=");
   llvm::consumeError(m_replacements.add(binRepl));
 }
 
@@ -1137,6 +1237,17 @@ bool OpenHipifyHostFA::StripAddressOfVar(const Expr *var, std::string &ret) {
 std::string OpenHipifyHostFA::ExprToStr(const clang::Expr *expr) {
   CharSourceRange rng = CharSourceRange::getTokenRange(expr->getSourceRange());
   return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
+}
+
+bool OpenHipifyHostFA::ExtractType(const clang::Decl *decl, std::string &ret) {
+  std::string declStr = DeclToStr(decl);
+  size_t spaceIdx = declStr.find(' ');
+  if (spaceIdx == std::string::npos) {
+    return false;
+  }
+
+  ret = declStr.substr(0, spaceIdx);
+  return true;
 }
 
 std::string OpenHipifyHostFA::DeclToStr(const clang::Decl *decl) {
