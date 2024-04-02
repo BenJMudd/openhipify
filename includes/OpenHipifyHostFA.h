@@ -114,6 +114,7 @@ private:
   const clang::Stmt *SearchParentScope(const clang::Stmt *base);
   bool IsInScope(const clang::Stmt &base, const clang::Stmt &tScope);
   const clang::Expr *GetBinaryExprParenOrSelf(const clang::Expr *base);
+  void RemoveBinExprIfPossible(const clang::Expr *base);
 
   bool StripAddressOfVar(const clang::Expr *var, std::string &ret);
   std::string ExprToStr(const clang::Expr *expr);

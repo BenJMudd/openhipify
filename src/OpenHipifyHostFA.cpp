@@ -37,16 +37,17 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
       this);
 
   // removal of redundant variable declarations
-  // m_finder->addMatcher(
-  //     declStmt(isExpansionInMainFile(),
-  //              hasDescendant(
-  //                  varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
-  //                                hasType(asString(OpenCL::CL_PROGRAM)),
-  //                                hasType(asString(OpenCL::CL_KERNEL)),
-  //                                hasType(asString(OpenCL::CL_DEVICE_ID)),
-  //                                hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
-  //         .bind(B_DECL_STMT_CULL),
-  //     this);
+  m_finder->addMatcher(
+      declStmt(isExpansionInMainFile(),
+               hasDescendant(
+                   varDecl(anyOf(hasType(asString(OpenCL::CL_CONTEXT)),
+                                 hasType(asString(OpenCL::CL_PROGRAM)),
+                                 hasType(asString(OpenCL::CL_KERNEL)),
+                                 hasType(asString(OpenCL::CL_DEVICE_ID)),
+                                 hasType(asString(OpenCL::CL_PLATFORM_ID)),
+                                 hasType(asString(OpenCL::CL_COMMAND_QUEUE))))))
+          .bind(B_DECL_STMT_CULL),
+      this);
 
   return m_finder->newASTConsumer();
 }
@@ -536,10 +537,12 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   std::string declStr = DeclToStr(varDecl);
   const char *searchStr = strstr(declStr.c_str(), varName.c_str());
   while (searchStr) {
-    if (isalpha(*(searchStr + varName.length() + 1))) {
+    char nextChar = *(searchStr + varName.length());
+    if (nextChar != '\0' || isalpha(nextChar)) {
       searchStr = strstr(searchStr + 1, varName.c_str());
       continue;
     }
+
     break;
   }
 
@@ -685,12 +688,15 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
   ct::Replacement argsRepl(*SM, argRng, hipMemcpyArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
+  // test if error is checked
+  RemoveBinExprIfPossible(callExpr);
   return true;
 }
 
 bool OpenHipifyHostFA::ReplaceReleaseMemObject(
     const clang::CallExpr *callExpr) {
   RewriteFuncName(callExpr, HIP::FREE);
+  RemoveBinExprIfPossible(callExpr);
   return false;
 }
 
@@ -1098,6 +1104,19 @@ OpenHipifyHostFA::GetBinaryExprParenOrSelf(const clang::Expr *base) {
   }
 
   return base;
+}
+
+void OpenHipifyHostFA::RemoveBinExprIfPossible(const clang::Expr *base) {
+  const Expr *parent = GetBinaryExprParenOrSelf(base);
+  if (parent == base) {
+    return;
+  }
+
+  SourceLocation binStart = parent->getBeginLoc();
+  SourceLocation binEnd = base->getBeginLoc();
+  CharSourceRange binRng = CharSourceRange::getCharRange(binStart, binEnd);
+  ct::Replacement binRepl(*SM, binRng, "");
+  llvm::consumeError(m_replacements.add(binRepl));
 }
 
 bool OpenHipifyHostFA::StripAddressOfVar(const Expr *var, std::string &ret) {
