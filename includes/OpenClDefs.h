@@ -153,6 +153,7 @@ const std::map<std::string, HostFuncs> HOST_FUNC_MAP{
     {CL_RELEASE_MEM_OBJECT, HostFuncs::clReleaseMemObject},
     {CL_SET_KERNEL_ARG, HostFuncs::clSetKernelArg},
     {CL_ENQUEUE_NDRANGE_BUFFER, HostFuncs::clEnqueueNDRangeKernel},
+    {CL_ENQUEUE_TASK, HostFuncs::clEnqueueTask},
     {CL_CREATE_KERNEL, HostFuncs::clCreateKernel},
     {GET_KWG_INFO, HostFuncs::clGetCWGInfo},
     {CL_GET_PLATFORM_IDS, HostFuncs::clGetPlatformIDs},

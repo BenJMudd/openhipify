@@ -87,6 +87,17 @@ private:
                               const KernelDefinition *kDef,
                               const std::vector<ArgInfo> &args,
                               std::set<std::string> &kernelFilesUsed);
+  void GenerateEnqueueTaskLaunch(const clang::CallExpr *launchKernelExpr,
+                                 const KernelLaunchTracker::KernelInfo &kInfo,
+                                 const KernelDefinition *kDef,
+                                 const std::vector<ArgInfo> &args,
+                                 std::set<std::string> &kernelFilesUsed);
+  void GenerateGenericKernelLaunch(
+      const clang::CallExpr *launchKernelExpr, const std::string &numBlocks,
+      const std::string &blockSize, bool nBlockAddrStripped,
+      bool sBlockAddrStripped, const KernelLaunchTracker::KernelInfo &kInfo,
+      const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
+      std::set<std::string> &kernelFilesUsed);
 
   // Generic function call replacements
   bool ReplaceGetKWGGeneric(const clang::CallExpr &callExpr);

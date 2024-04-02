@@ -126,9 +126,13 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         args.resize(numArgs);
         argsFinalised = true;
       }
-
-      GenerateNDKernelLaunch(launchKernelExpr, kInfo, kDef, args,
-                             kernelFilesUsed);
+      if (kLaunch.second == OpenCL::HostFuncs::clEnqueueNDRangeKernel) {
+        GenerateNDKernelLaunch(launchKernelExpr, kInfo, kDef, args,
+                               kernelFilesUsed);
+      } else if (kLaunch.second == OpenCL::HostFuncs::clEnqueueTask) {
+        GenerateEnqueueTaskLaunch(launchKernelExpr, kInfo, kDef, args,
+                                  kernelFilesUsed);
+      }
     };
 
     auto HandleArgExpr = [&](const CallExpr *setArgExpr) { // Extract arg number
@@ -520,12 +524,33 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!varRef)
     return false;
 
-  const ValueDecl *varDecl = varRef->getDecl();
+  const ValueDecl *valDecl = varRef->getDecl();
+  if (!valDecl)
+    return false;
+
+  const VarDecl *varDecl = dyn_cast<VarDecl>(valDecl);
   if (!varDecl)
     return false;
 
+  std::string varName = varRef->getNameInfo().getName().getAsString();
+  std::string declStr = DeclToStr(varDecl);
+  const char *searchStr = strstr(declStr.c_str(), varName.c_str());
+  while (searchStr) {
+    if (isalpha(*(searchStr + varName.length() + 1))) {
+      searchStr = strstr(searchStr + 1, varName.c_str());
+      continue;
+    }
+    break;
+  }
+
+  if (!searchStr) {
+    return false;
+  }
+  unsigned offset = searchStr - declStr.c_str();
+
   // prefixing with pointer type
-  ct::Replacement ptrRepl(*SM, varDecl->getEndLoc(), 0, "*");
+  ct::Replacement ptrRepl(*SM, varDecl->getBeginLoc().getLocWithOffset(offset),
+                          0, "*");
   llvm::consumeError(m_replacements.add(ptrRepl));
 
   std::string varDeclStr = DeclToStr(varDecl);
@@ -551,7 +576,6 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   ct::Replacement binOpRepl(*SM, binOpRng, "");
   llvm::consumeError(m_replacements.add(binOpRepl));
 
-  std::string varName = varRef->getNameInfo().getName().getAsString();
   ReplaceCreateBufferArguments(cBufExpr, varName);
   return true;
 }
@@ -811,7 +835,25 @@ void OpenHipifyHostFA::GenerateNDKernelLaunch(
   bool isNumBlocksAddrStripped = StripAddressOfVar(numBlocksExpr, numBlocksStr);
   std::string blockSizeStr;
   bool isBlockSizeAddrStripped = StripAddressOfVar(blockSizeExpr, blockSizeStr);
+  GenerateGenericKernelLaunch(launchKernelExpr, numBlocksStr, blockSizeStr,
+                              isNumBlocksAddrStripped, isBlockSizeAddrStripped,
+                              kInfo, kDef, args, kernelFilesUsed);
+}
 
+void OpenHipifyHostFA::GenerateEnqueueTaskLaunch(
+    const clang::CallExpr *launchKernelExpr,
+    const KernelLaunchTracker::KernelInfo &kInfo, const KernelDefinition *kDef,
+    const std::vector<ArgInfo> &args, std::set<std::string> &kernelFilesUsed) {
+  GenerateGenericKernelLaunch(launchKernelExpr, "1", "1", true, true, kInfo,
+                              kDef, args, kernelFilesUsed);
+}
+
+void OpenHipifyHostFA::GenerateGenericKernelLaunch(
+    const clang::CallExpr *launchKernelExpr, const std::string &numBlocks,
+    const std::string &blockSize, bool nBlockAddrStripped,
+    bool sBlockAddrStripped, const KernelLaunchTracker::KernelInfo &kInfo,
+    const KernelDefinition *kDef, const std::vector<ArgInfo> &args,
+    std::set<std::string> &kernelFilesUsed) {
   // Replace function name with hip equivalent
   SourceLocation funcNameBLoc =
       GetBinaryExprParenOrSelf(launchKernelExpr)->getBeginLoc();
@@ -828,17 +870,17 @@ void OpenHipifyHostFA::GenerateNDKernelLaunch(
   llvm::raw_string_ostream launchKernelArgsStr(launchKernelArgs);
   launchKernelArgsStr << kInfo.funcName << ","
                       << "dim3(";
-  if (isNumBlocksAddrStripped) {
-    launchKernelArgsStr << numBlocksStr << "),";
+  if (nBlockAddrStripped) {
+    launchKernelArgsStr << numBlocks << "),";
   } else {
-    launchKernelArgsStr << "*(" << numBlocksStr << ")),";
+    launchKernelArgsStr << "*(" << numBlocks << ")),";
   }
 
   launchKernelArgsStr << "dim3(";
-  if (isBlockSizeAddrStripped) {
-    launchKernelArgsStr << blockSizeStr << "),";
+  if (sBlockAddrStripped) {
+    launchKernelArgsStr << blockSize << "),";
   } else {
-    launchKernelArgsStr << "*(" << blockSizeStr << ")),";
+    launchKernelArgsStr << "*(" << blockSize << ")),";
   }
 
   launchKernelArgsStr << "0,0";
