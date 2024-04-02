@@ -67,6 +67,9 @@ const std::string CL_KERNEL = "cl_kernel";
 const std::string CL_CONTEXT = "cl_context";
 const std::string CL_COMMAND_QUEUE = "cl_command_queue";
 
+// values
+const unsigned CL_SUCCESS_VAL = 0x0;
+const std::string CL_SUCCESS = "CL_SUCCESS";
 // Functions
 enum class HostFuncs {
   clCreateBuffer,

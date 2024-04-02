@@ -12,6 +12,7 @@ const StringRef B_VAR_DECL = "varDecl";
 const StringRef B_DECL_STMT_CULL = "declStmt";
 const StringRef B_VAR_DECL_CULL = "varDeclCull";
 const StringRef B_BIN_OP_REF = "binOpRef";
+const StringRef B_ERROR = "bError";
 #define ERR_BOLD_STR llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
 
 std::unique_ptr<ASTConsumer>
@@ -34,6 +35,14 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
                                    hasType(asString(OpenCL::CL_CONTEXT))))))
 
           .bind(B_BIN_OP_REF),
+      this);
+
+  // match on error statements (e.g. ret == CL_SUCCESS)
+  m_finder->addMatcher(
+      binaryOperator(isComparisonOperator(), isExpansionInMainFile(),
+                     hasLHS(ignoringImpCasts(
+                         declRefExpr(hasType(asString(OpenCL::CL_INT))))))
+          .bind(B_ERROR),
       this);
 
   // removal of redundant variable declarations
@@ -344,6 +353,9 @@ void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
 
   if (BinaryOpDeclRef(res))
     return;
+
+  if (ErrorComparison(res))
+    return;
 }
 
 bool OpenHipifyHostFA::FunctionCall(
@@ -460,6 +472,34 @@ bool OpenHipifyHostFA::BinaryOpDeclRef(
   }
 
   RemoveExprFromSource(binOp);
+  return true;
+}
+
+bool OpenHipifyHostFA::ErrorComparison(
+    const ASTMatch::MatchFinder::MatchResult &res) {
+  const clang::BinaryOperator *binOp =
+      res.Nodes.getNodeAs<clang::BinaryOperator>(B_ERROR);
+  if (!binOp) {
+    return false;
+  }
+
+  const Expr *rhs = binOp->getRHS();
+  Expr::EvalResult rhsEval;
+
+  if (rhs->EvaluateAsInt(rhsEval, *AST)) {
+    APSInt errCase = rhsEval.Val.getInt();
+    if (errCase == OpenCL::CL_SUCCESS_VAL) {
+      SourceLocation beginLoc = SM->getExpansionLoc(rhs->getExprLoc());
+      ct::Replacement rhsRepl(*SM, beginLoc, OpenCL::CL_SUCCESS.length(),
+                              HIP::HIP_SUCCESS);
+      llvm::consumeError(m_replacements.add(rhsRepl));
+    }
+  } else {
+    // TODO: better error
+    llvm::errs() << sOpenHipify << sErr << "Unable to evalute rhs\n";
+    return true;
+  }
+
   return true;
 }
 

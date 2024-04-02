@@ -152,6 +152,7 @@ const std::string VOID_PTR_PTR_CAST = "(void**)";
 // Values
 const std::string MEMCPY_HOST_DEVICE = "hipMemcpyHostToDevice";
 const std::string MEMCPY_DEVICE_HOST = "hipMemcpyDeviceToHost";
+const std::string HIP_SUCCESS = "hipSuccess";
 
 // Props
 const std::string PROPS_OBJ = "HIP_Prop";
