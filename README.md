@@ -1,4 +1,4 @@
-# OpenHipify
+# Openhipify
 
 Openhipify is an OpenCL to HIP transpiler, currently still in development.
 This can be used for OpenCL C translation (i.e. OpenCL kernels), and for the OpenCL 3.0
@@ -45,5 +45,5 @@ openhipify host.c kernel.cl --
 Multiple host and kernel files can be inputted in any order into the tool. Each will be
 translated into a HIP file with the same name, with an extra .cpp extention (i.e. kernel.cl -> kernel.cl.cpp)
 
-Examples of full translation can be found at the 
+Examples of full translation can be found at the
 [Openipify test suite](https://github.com/BenJMudd/openhipify-test-suite).
