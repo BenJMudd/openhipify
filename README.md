@@ -2,7 +2,7 @@
 
 Openhipify is an OpenCL to HIP transpiler, currently still in development.
 This can be used for OpenCL C translation (i.e. OpenCL kernels), and for the OpenCL 3.0
-C API (C++ API is currently not supported).
+C API.
 
 ## Installation
 
