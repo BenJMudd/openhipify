@@ -4,3 +4,4 @@
 
 namespace cl = llvm::cl;
 extern cl::OptionCategory OpenHipifyToolTemplateCategory;
+extern cl::opt<bool> NoKernelArgProtection;
