@@ -212,6 +212,7 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   case OpenCL::KernelFuncs::GET_GLOBAL_ID:
   case OpenCL::KernelFuncs::GET_LOCAL_ID:
   case OpenCL::KernelFuncs::GET_GROUP_ID:
+  case OpenCL::KernelFuncs::GET_NUM_GROUPS:
   case OpenCL::KernelFuncs::GET_LOCAL_SIZE: {
     ReplaceGET_GENERIC_THREAD_ID(*callExpr, res, funcSearch->second);
   } break;
@@ -441,6 +442,9 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
   case OpenCL::KernelFuncs::GET_LOCAL_SIZE: {
     hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension;
   } break;
+  case OpenCL::KernelFuncs::GET_NUM_GROUPS: {
+    hipDimOS << HIP::BLOCK_DIM_GENERIC << hipDimension;
+  }
   default:
     break;
   }

@@ -253,20 +253,20 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
       auto CheckScope = [&](const Expr *expr) -> bool {
         auto *exprScopeStmt = SearchParentScope(expr);
-        if (exprScopeStmt != baseScopeStmt) {
-          ERR_BOLD_STR << sOpenHipify;
-          llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
-          ERR_BOLD_STR
-              << "Kernel function called at a different scope from "
-                 "initial use. This can result in inconsistent kernel launch "
-                 "generation, removing and skipping...\n";
-          llvm::errs() << "Initial use:\n";
-          PrettyError(baseScopeExpr->getSourceRange(), raw_ostream::GREEN);
-          llvm::errs() << "Current use:\n";
-          PrettyError(expr->getSourceRange(), raw_ostream::YELLOW);
-          RemoveExprFromSource(expr);
-          return false;
-        }
+        // if (exprScopeStmt != baseScopeStmt) {
+        //   ERR_BOLD_STR << sOpenHipify;
+        //   llvm::WithColor(llvm::errs(), raw_ostream::YELLOW, true) << sWarn;
+        //   ERR_BOLD_STR
+        //       << "Kernel function called at a different scope from "
+        //          "initial use. This can result in inconsistent kernel launch
+        //          " "generation, removing and skipping...\n";
+        //   llvm::errs() << "Initial use:\n";
+        //   PrettyError(baseScopeExpr->getSourceRange(), raw_ostream::GREEN);
+        //   llvm::errs() << "Current use:\n";
+        //   PrettyError(expr->getSourceRange(), raw_ostream::YELLOW);
+        //   RemoveExprFromSource(expr);
+        //   return false;
+        // }
 
         return true;
       };
@@ -536,12 +536,19 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 
 bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   const Expr *errExpr = callExpr->getArg(4);
+  const Expr *errNullTest =
+      errExpr->IgnoreCasts()->IgnoreParens()->IgnoreCasts();
+  bool errTest = true;
   std::string errStr;
   std::string strippedErr;
-  if (StripAddressOfVar(errExpr, strippedErr)) {
-    errStr = strippedErr;
+  if (dyn_cast<IntegerLiteral>(errNullTest)) {
+    errTest = false;
   } else {
-    errStr = "*(" + ExprToStr(errExpr) + ")";
+    if (StripAddressOfVar(errExpr, strippedErr)) {
+      errStr = strippedErr;
+    } else {
+      errStr = "*(" + ExprToStr(errExpr) + ")";
+    }
   }
 
   const auto callExprParIter = AST->getParents(*callExpr).begin();
@@ -550,19 +557,19 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   const BinaryOperator *binOp;
   binOp = callExprParIter->get<BinaryOperator>();
   if (binOp)
-    return ReplaceCreateBufferBinOp(callExpr, binOp, errStr);
+    return ReplaceCreateBufferBinOp(callExpr, binOp, errTest, errStr);
 
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
   if (varDecl)
-    return ReplaceCreateBufferVarDecl(callExpr, varDecl, errStr);
+    return ReplaceCreateBufferVarDecl(callExpr, varDecl, errTest, errStr);
 
   return false;
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
-    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl,
-    const std::string &errVar) {
+    const clang::CallExpr *cBufExpr, const clang::VarDecl *varDecl, bool errVar,
+    const std::string &errVarStr) {
   // Renaming the type from cl_mem -> void*
   SourceLocation typeBeginLoc = varDecl->getBeginLoc();
   std::string typeStr = varDecl->getTypeSourceInfo()->getType().getAsString();
@@ -585,7 +592,10 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
       LexForTokenLocation(varDecl->getBeginLoc(), clang::tok::equal);
   std::string splitExpr;
   llvm::raw_string_ostream splitExprStr(splitExpr);
-  splitExprStr << HIP::EOL << errVar << "=";
+  splitExprStr << HIP::EOL;
+  if (errVar) {
+    splitExprStr << errVarStr << "=";
+  }
 
   // cl_mem mem = clCreateBuffer(...);
   // cl_mem mem ; clCreateBuffer(...);
@@ -596,8 +606,8 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
-    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp,
-    const std::string &errVar) {
+    const CallExpr *cBufExpr, const clang::BinaryOperator *binOp, bool errVar,
+    const std::string &errVarStr) {
   const DeclRefExpr *varRef = dyn_cast<DeclRefExpr>(binOp->getLHS());
   if (!varRef)
     return false;
@@ -653,7 +663,12 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   SourceLocation binOpEndLoc = binOp->getRHS()->getExprLoc();
   CharSourceRange binOpRng =
       CharSourceRange::getCharRange(binOpBeginLoc, binOpEndLoc);
-  ct::Replacement binOpRepl(*SM, binOpRng, errVar + "=");
+  std::string binOpReplStr = "";
+  if (errVar) {
+    binOpReplStr = errVarStr + "=";
+  }
+
+  ct::Replacement binOpRepl(*SM, binOpRng, binOpReplStr);
   llvm::consumeError(m_replacements.add(binOpRepl));
 
   ReplaceCreateBufferArguments(cBufExpr, varName);
@@ -876,12 +891,12 @@ bool OpenHipifyHostFA::TrackKernelCreate(const clang::CallExpr *callExpr) {
   if (kernelDecl) {
     m_kernelTracker.InsertName(kernelDecl, kernelStr);
     RemoveDeclFromSource(kernelDecl);
+  } else {
+    const BinaryOperator *binOp;
+    binOp = callExprParIter->get<BinaryOperator>();
+    if (binOp)
+      return TrackKernelCreateBinop(callExpr, binOp, kernelStr);
   }
-
-  const BinaryOperator *binOp;
-  binOp = callExprParIter->get<BinaryOperator>();
-  if (binOp)
-    return TrackKernelCreateBinop(callExpr, binOp, kernelStr);
 
   return false;
 }
