@@ -1,9 +1,8 @@
 
 #include "KernelTracking.h"
+#include "OpenHipifyFAFactory.h"
 #include "OpenHipifyHostFA.h"
-#include "OpenHipifyHostFAFactory.h"
 #include "OpenHipifyKernelFA.h"
-#include "OpenHipifyKernelFAFactory.h"
 #include "args/Arguments.h"
 #include "utils/Defs.h"
 #include "utils/PathUtils.h"
