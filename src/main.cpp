@@ -1,12 +1,10 @@
 
+#include "Arguments.h"
 #include "KernelTracking.h"
+#include "OpenHipifyFAFactory.h"
 #include "OpenHipifyHostFA.h"
-#include "OpenHipifyHostFAFactory.h"
 #include "OpenHipifyKernelFA.h"
-#include "OpenHipifyKernelFAFactory.h"
-#include "args/Arguments.h"
-#include "utils/Defs.h"
-#include "utils/PathUtils.h"
+#include "defs/OpenhipifyDefs.h"
 
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Refactoring.h"
@@ -18,11 +16,37 @@
 #include <sstream>
 
 using namespace llvm;
-using namespace OpenHipify;
 namespace ct = clang::tooling;
 namespace fs = sys::fs;
 namespace stdfs = std::filesystem;
 
+bool GenerateTempDuplicateFile(const std::string &file, const std::string &ext,
+                               SmallVectorImpl<char> &tmpFile) {
+  SmallString<256> fileAbsPath;
+  std::error_code err = fs::real_path(file, fileAbsPath, true);
+  if (err) {
+    llvm::errs() << sOpenHipify << sErr << err.message()
+                 << ": source file: " << file << "\n";
+    return false;
+  }
+
+  StringRef kernelFileName = sys::path::filename(fileAbsPath);
+  err = fs::createTemporaryFile(kernelFileName, ext, tmpFile);
+  if (err) {
+    llvm::errs() << sOpenHipify << sErr << err.message()
+                 << ": source file: " << file << "\n";
+    return false;
+  }
+  err = fs::copy_file(file, tmpFile);
+  if (err) {
+    llvm::errs() << sOpenHipify << sErr << err.message()
+                 << ": while copying: " << fileAbsPath << " to " << tmpFile
+                 << "\n";
+    return false;
+  }
+
+  return true;
+}
 bool SortSourceFilePaths(const std::vector<std::string> &srcList,
                          std::vector<std::string> &kernelSrcList,
                          std::vector<std::string> &hostSrcList) {
@@ -63,7 +87,7 @@ void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
   // generate a temporary file to work on in case of runtime
   // errors, as we do not want to corrupt the input file
   SmallString<256> tmpFile;
-  if (!Path::GenerateTempDuplicateFile(file, isKernel ? "cl" : "c", tmpFile)) {
+  if (!GenerateTempDuplicateFile(file, isKernel ? "cl" : "c", tmpFile)) {
     return;
   }
   std::string tmpFileStr = std::string(tmpFile.c_str());

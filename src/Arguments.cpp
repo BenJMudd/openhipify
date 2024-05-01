@@ -1,4 +1,4 @@
-#include "args/Arguments.h"
+#include "Arguments.h"
 cl::OptionCategory
     OpenHipifyToolTemplateCategory("OpenCL to HIP transpiler options");
 
