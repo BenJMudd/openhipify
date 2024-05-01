@@ -20,7 +20,6 @@ const std::set<clang::LangAS> OpenCL::OPENCL_ADDR_SPACES{
     clang::LangAS::opencl_global_host};
 
 // Functions
-
 const std::string OpenCL::GET_GLOBAL_ID = "get_global_id";
 const std::string OpenCL::GET_LOCAL_ID = "get_local_id";
 const std::string OpenCL::GET_GROUP_ID = "get_group_id";

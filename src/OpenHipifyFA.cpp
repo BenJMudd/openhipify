@@ -10,6 +10,15 @@ using namespace clang;
 void OpenHipifyFA::PrettyError(clang::SourceRange loc,
                                llvm::raw_ostream::Colors underlineCol,
                                std::string extraInfo) {
+  /*
+  Generate errors in the form:
+
+  <FILE_NAME>
+  l-1|  Line above
+  l  |  Line containing the error, with {loc} being the cause
+     |                                  ^^^^^ <--- extraInfo printed here
+  l+1|  Line below
+  */
 
   StringRef fileName = getCurrentFile();
   fileName.consume_front("/tmp/");
@@ -29,7 +38,7 @@ void OpenHipifyFA::PrettyError(clang::SourceRange loc,
   SourceLocation nextLineStart = LineSourceLoc(startLineNum + 1);
   SourceLocation nextLineEnd = LineSourceLoc(startLineNum + 2);
 
-  auto LineText = [&](SourceLocation start, SourceLocation end) {
+  auto LineText = [&](SourceLocation start, SourceLocation end) -> std::string {
     CharSourceRange rng = CharSourceRange::getTokenRange(start, end);
     return std::string(Lexer::getSourceText(rng, *SM, LangOptions(), nullptr));
   };

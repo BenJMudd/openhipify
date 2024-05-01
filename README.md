@@ -8,7 +8,7 @@ C API.
 
 Openhipify uses LibTooling in clang, and requires LLVM to build and use.
 
-1. Download the LLVM source from the [LLVM github](https://github.com/llvm/llvm-project/releases).
+1. Download the LLVM source from our [LLVM fork](https://github.com/BenJMudd/llvm-project). (We use our fork as there are extra AST matching cases which have not been commited into the LLVM trunnk as of yet)
 2. Clone the openhipify repository into the tools section:
 
 ```bash

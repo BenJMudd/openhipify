@@ -45,7 +45,6 @@ private:
   void EndSourceFileAction() override;
 
   bool FunctionCall(const ASTMatch::MatchFinder::MatchResult &res);
-  bool VariableDeclaration(const ASTMatch::MatchFinder::MatchResult &res);
   bool DeclarationStmt(const ASTMatch::MatchFinder::MatchResult &res);
   bool BinaryOpDeclRef(const ASTMatch::MatchFinder::MatchResult &res);
   bool ErrorComparison(const ASTMatch::MatchFinder::MatchResult &res);
