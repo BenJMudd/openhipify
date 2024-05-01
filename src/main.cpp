@@ -4,7 +4,7 @@
 #include "OpenHipifyFAFactory.h"
 #include "OpenHipifyHostFA.h"
 #include "OpenHipifyKernelFA.h"
-#include "utils/Defs.h"
+#include "defs/OpenhipifyDefs.h"
 
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Refactoring.h"

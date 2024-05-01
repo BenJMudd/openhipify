@@ -1,5 +1,5 @@
 #include "OpenHipifyKernelFA.h"
-#include "utils/Defs.h"
+#include "defs/OpenhipifyDefs.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Frontend/CompilerInstance.h"

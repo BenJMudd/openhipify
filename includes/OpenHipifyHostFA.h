@@ -1,9 +1,9 @@
 #pragma once
 
 #include "KernelTracking.h"
-#include "OpenClDefs.h"
 #include "OpenHipifyFA.h"
 #include "OpenHipifyKernelFA.h"
+#include "defs/OpenCLDefs.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendAction.h"

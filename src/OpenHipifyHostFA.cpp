@@ -1,6 +1,6 @@
 #include "OpenHipifyHostFA.h"
-#include "OpenClDefs.h"
-#include "utils/Defs.h"
+#include "defs/OpenCLDefs.h"
+#include "defs/OpenhipifyDefs.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "llvm/Support/WithColor.h"
 

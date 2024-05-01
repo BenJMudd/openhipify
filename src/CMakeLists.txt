@@ -1,7 +1,9 @@
 include_directories(${openhipify_SOURCE_DIR}/includes)
 
 add_clang_executable(openhipify
-  utils/Defs.cpp
+  defs/OpenhipifyDefs.cpp
+  defs/HIPDefs.cpp
+  defs/OpenCLDefs.cpp
   Arguments.cpp
   OpenHipifyKernelFA.cpp
   OpenHipifyHostFA.cpp

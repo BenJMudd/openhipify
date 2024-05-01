@@ -1,8 +1,8 @@
 #pragma once
-#include "HIPDefs.h"
 #include "KernelTracking.h"
-#include "OpenClDefs.h"
 #include "OpenHipifyFA.h"
+#include "defs/HIPDefs.h"
+#include "defs/OpenCLDefs.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Core/Replacement.h"

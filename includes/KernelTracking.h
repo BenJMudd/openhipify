@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OpenClDefs.h"
+#include "defs/OpenCLDefs.h"
 #include "clang/AST/Expr.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
