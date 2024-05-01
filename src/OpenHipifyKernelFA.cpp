@@ -17,12 +17,26 @@ OpenHipifyKernelFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   m_finder.reset(new ASTMatch::MatchFinder);
   SM = &getCompilerInstance().getSourceManager();
 
-  // case matching
+  // ---- Case matching ----
+
+  // Call expressions:
+  //   clCreateBuffer(...))
+  //   ^^^^^^^^^^^^^^
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
+  // As type expressions:
+  //   as_float(...)
+  //   ^^^^^^^^
+  //
+  // This is NOT a call expression even though it looks like one, it is a
+  // separate node type in the AST
   m_finder->addMatcher(asTypeExpr(isExpansionInMainFile()).bind(B_AS_TYPE_EXPR),
                        this);
+
+  // OpenCL kernel declarations:
+  //   __kernel void ...() {...}
+  //            ^^^^^^^^
   m_finder->addMatcher(
       functionDecl(isExpansionInMainFile(), hasAttr(attr::OpenCLKernel))
           .bind(B_KERNEL_DECL),
@@ -95,7 +109,7 @@ bool OpenHipifyKernelFA::OpenCLKernelFunctionDecl(
       if (addrSpaceIdx == std::string::npos)
         continue;
 
-      // OpenCL parameter found, strip memeory range
+      // OpenCL parameter found, strip memory range
       SourceLocation typeBeginLoc = param->getBeginLoc();
       SourceLocation addrSpaceBeginLoc =
           typeBeginLoc.getLocWithOffset(addrSpaceIdx);
@@ -124,6 +138,7 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
 
   ParenExpr *parenExpr = dyn_cast<ParenExpr>(asTypeExpr->getSrcExpr());
   if (!parenExpr) {
+    // TODO: better err message (this is quite a crap one)
     llvm::errs() << "Something wrong!\n";
     return false;
   }
@@ -148,7 +163,6 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
   SourceLocation rParenLoc;
   SourceLocation lParenLoc;
   lex.LexFromRawLexer(tok);
-  // TODO: Better escape clause
   while (1) {
     if (tok.is(clang::tok::r_paren)) {
       bracketIdx--;
@@ -180,10 +194,12 @@ bool OpenHipifyKernelFA::OpenCLAsTypeExpr(
     castOS << "double";
   } else {
     llvm::errs() << sOpenHipify << sErr << "Cannot deduce type.\n";
-    return false; // TODO: Better err msg
+    return false;
   }
   castOS << ")(";
 
+  // Replace with standard casat:
+  // as_float(...) -> (float) (...)
   ct::Replacement callRepl = ct::Replacement(*SM, callCharRng, castOS.str());
   llvm::consumeError(m_replacements.add(callRepl));
   ct::Replacement parenRepl = ct::Replacement(*SM, rParenLoc, 0, ")");
@@ -207,7 +223,6 @@ bool OpenHipifyKernelFA::OpenCLFunctionCall(
   if (funcSearch == OpenCL::KERNEL_FUNC_MAP.end())
     return false;
 
-  // Found OpenCL function call
   switch (funcSearch->second) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID:
   case OpenCL::KernelFuncs::GET_LOCAL_ID:
@@ -244,7 +259,6 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   CharSourceRange charSrcRng = CharSourceRange::getCharRange(funcDeclRange);
   std::string funcDeclStrRaw(Lexer::getSourceText(charSrcRng, srcManager, LO));
 
-  // Applying replacements
   unsigned baseOffset =
       srcManager.getFileOffset(funcDecl.getTypeSpecStartLoc());
   size_t offset = 0;
@@ -258,6 +272,7 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
   funcDeclStr += funcDeclStrRaw.substr(offset);
   funcDeclStr += ");";
 
+  // Strip parameter address spaces
   std::vector<std::string> funcArgs;
   for (ParmVarDecl *param : funcDecl.parameters()) {
     std::string paramStr = param->getOriginalType().getAsString();
@@ -284,7 +299,6 @@ void OpenHipifyKernelFA::AppendKernelFuncMap(
 
 void OpenHipifyKernelFA::InsertAuxFunction(CharSourceRange funcNameRng,
                                            HIP::AUX_FUNC_ID func) {
-
   auto funcToInsert = HIP::AUX_FUNC_MAP.find(func);
   if (funcToInsert == HIP::AUX_FUNC_MAP.end())
     return;
@@ -407,8 +421,6 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
 
   switch (funcIdent) {
   case OpenCL::KernelFuncs::GET_GLOBAL_ID: {
-    // hipBlockDim_DIM * hipBlockIdx_DIM + hipThreadIdx_DIM
-
     // Lex next token to see if it's a semi colon. If not, we
     // guard the insertion as statements after can result in
     // change in execution. E.g. get_global_id(0) * 2 would
@@ -433,7 +445,6 @@ bool OpenHipifyKernelFA::ReplaceGET_GENERIC_THREAD_ID(
       hipDimOS << ")";
   } break;
   case OpenCL::KernelFuncs::GET_LOCAL_ID: {
-    // hipThreadIdx_DIM
     hipDimOS << HIP::THREAD_IDX_GENERIC << hipDimension;
   } break;
   case OpenCL::KernelFuncs::GET_GROUP_ID: {

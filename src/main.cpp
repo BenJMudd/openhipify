@@ -57,6 +57,8 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
           << "\n";
     return error.str();
   };
+
+  // We move kernel files (.cl) before host files (.c)
   for (const std::string &file : srcList) {
     size_t dotIdx = file.rfind('.');
     if (dotIdx == std::string::npos) {
@@ -75,17 +77,15 @@ bool SortSourceFilePaths(const std::vector<std::string> &srcList,
   }
 
   return true;
-} // namespace
-  // llvm::sys::fs'boolSortSourceFilePaths(conststd::vector<std::string>&srcList,std::vector<std::string>&kernelSrcList,std::vector<std::string>&hostSrcList)
+}
 
 void ProcessFile(const std::string &file, ct::CommonOptionsParser &optParser,
                  std::map<std::string, const KernelDefinition> &kFuncMap,
                  OpenHipifyHostFA::KernelIncludeTracker *kTracker,
                  bool isKernel) {
-  std::error_code err;
-
   // generate a temporary file to work on in case of runtime
   // errors, as we do not want to corrupt the input file
+  std::error_code err;
   SmallString<256> tmpFile;
   if (!GenerateTempDuplicateFile(file, isKernel ? "cl" : "c", tmpFile)) {
     return;
@@ -154,11 +154,8 @@ void GenerateHeaderFiles(OpenHipifyHostFA::KernelIncludeTracker &kTracker) {
 
     prependedKernelDefFile << "\n#include \"" << kernelFileName + ".hpp"
                            << "\"\n";
-
     prependedKernelDefFile << kernelDefFile.rdbuf();
-
     kernelDefFile.close();
-
     kernelDefFile.open(kernelTransFile,
                        std::fstream::out | std::fstream::trunc);
     kernelDefFile << prependedKernelDefFile.rdbuf() << "\n";

@@ -8,11 +8,10 @@ using namespace ASTMatch;
 using namespace clang;
 
 const StringRef B_CALL_EXPR = "callExpr";
-const StringRef B_VAR_DECL = "varDecl";
 const StringRef B_DECL_STMT_CULL = "declStmt";
-const StringRef B_VAR_DECL_CULL = "varDeclCull";
 const StringRef B_BIN_OP_REF = "binOpRef";
 const StringRef B_ERROR = "bError";
+
 #define ERR_BOLD_STR llvm::WithColor(llvm::errs(), raw_ostream::WHITE, true)
 
 std::unique_ptr<ASTConsumer>
@@ -22,11 +21,17 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 
   m_finder.reset(new ASTMatch::MatchFinder);
 
-  // case matching
+  // ---- Case matching ----
+
+  // Call expressions:
+  //   clCreateBuffer(...))
+  //   ^^^^^^^^^^^^^^
   m_finder->addMatcher(callExpr(isExpansionInMainFile()).bind(B_CALL_EXPR),
                        this);
 
-  // Removal of redundant assignment expresion
+  // Redundant OpenCL binary expressions:
+  //   device = create_device(...)
+  //   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   m_finder->addMatcher(
       binaryOperator(
           isAssignmentOperator(), isExpansionInMainFile(),
@@ -37,7 +42,9 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
           .bind(B_BIN_OP_REF),
       this);
 
-  // match on error statements (e.g. ret == CL_SUCCESS)
+  // Error statements:
+  //   ret == CL_SUCCESS
+  //   ^^^^^^^^^^^^^^^^^
   m_finder->addMatcher(
       binaryOperator(isComparisonOperator(), isExpansionInMainFile(),
                      hasLHS(ignoringImpCasts(
@@ -45,7 +52,9 @@ OpenHipifyHostFA::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
           .bind(B_ERROR),
       this);
 
-  // removal of redundant variable declarations
+  // Redundant OpenCL variable declarations:
+  // cl_context context = clCreateContext(...)
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   m_finder->addMatcher(declStmt(isExpansionInMainFile(),
                                 hasDescendant(varDecl(anyOf(
                                     hasType(asString(OpenCL::CL_CONTEXT)),
@@ -66,6 +75,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
   m_kernelTracker.Finalise(*SM);
   std::set<std::string> kernelFilesUsed;
 
+  // Generate kernel launches
   for (const auto &[kernelDecl, kInfo] : m_kernelTracker.GetKernelInfo()) {
     // args are indexed in
     // [..(arg expression string, has addr op stripped)]
@@ -93,6 +103,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     auto HandlLaunchExpr = [&](KernelLaunch kLaunch) {
       const CallExpr *launchKernelExpr = kLaunch.first;
       if (!argsFinalised) {
+        // Test if arguments are valid
         auto EnsureArguments = [&]() -> bool {
           for (size_t i = 0; i < numArgs; ++i) {
             if (!argsUse[i]) {
@@ -104,7 +115,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
                            << " has not been set."
                            << "\n";
 
-              // Extra kernel error messagin
+              // Extra kernel error
               std::string kernelNameExtrInfo;
               llvm::raw_string_ostream kernelNameExtrInfoStr(
                   kernelNameExtrInfo);
@@ -146,7 +157,8 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
     };
 
-    auto HandleArgExpr = [&](const CallExpr *setArgExpr) { // Extract arg number
+    auto HandleArgExpr = [&](const CallExpr *setArgExpr) {
+      // Evaluate argument position
       const Expr *argPosExpr = setArgExpr->getArg(1);
       Expr::EvalResult argPosEval;
       if (!argPosExpr->EvaluateAsInt(argPosEval, *AST)) {
@@ -170,7 +182,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
                      << "' accepts " << kDef->argTypes.size()
                      << " parameters.\n";
 
-        // Extra kernel error messagin
         std::string kernelNameExtrInfo;
         llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
         kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " ("
@@ -187,7 +198,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         ERR_BOLD_STR << "Argument index '" << argPos
                      << "' out of range, Kernel '" << kInfo.funcName
                      << "' accepts at maximum " << numArgs << " parameters.\n";
-        // Extra kernel error messagin
+        // Extra kernel error
         std::string kernelNameExtrInfo;
         llvm::raw_string_ostream kernelNameExtrInfoStr(kernelNameExtrInfo);
         kernelNameExtrInfoStr << "kernel: " << kInfo.funcName << " (untracked)";
@@ -226,7 +237,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
       }
 
       // Remove expression
-      // test if binary
       const Expr *rmvExpr = GetBinaryExprParenOrSelf(setArgExpr);
       RemoveExprFromSource(rmvExpr);
     };
@@ -235,6 +245,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
     auto launchIter = kInfo.launches.begin();
     const Stmt *baseScopeStmt = nullptr;
     const Expr *baseScopeExpr = nullptr;
+    // Iterate through all kernel argument setting calls and launches
     while (1) {
       bool isAllArgsProcessed = argIter == kInfo.args.end();
       bool isAllLaunchesProcessed = launchIter == kInfo.launches.end();
@@ -251,6 +262,7 @@ void OpenHipifyHostFA::EndSourceFileAction() {
         baseScopeExpr = *argIter;
       }
 
+      // Test if scope is consistent for kernel functions
       auto CheckScope = [&](const Expr *expr) -> bool {
         auto *exprScopeStmt = SearchParentScope(expr);
         if (exprScopeStmt != baseScopeStmt) {
@@ -269,9 +281,6 @@ void OpenHipifyHostFA::EndSourceFileAction() {
 
         return true;
       };
-      // TODO: finish
-      // To write about for diss, can go on about scope tracking for kernel
-      // launching
 
       if (isAllArgsProcessed) {
         // Handle dangling launches
@@ -345,9 +354,6 @@ void OpenHipifyHostFA::run(const ASTMatch::MatchFinder::MatchResult &res) {
   if (FunctionCall(res))
     return;
 
-  if (VariableDeclaration(res))
-    return;
-
   if (DeclarationStmt(res))
     return;
 
@@ -403,36 +409,6 @@ bool OpenHipifyHostFA::FunctionCall(
   }
 
   return false;
-}
-
-bool OpenHipifyHostFA::VariableDeclaration(
-    const ASTMatch::MatchFinder::MatchResult &res) {
-  // const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL);
-  // if (!varDecl)
-  //   return false;
-
-  // const IdentifierInfo *typeIdentifier =
-  //     varDecl->getType().getBaseTypeIdentifier();
-  // if (!typeIdentifier)
-  //   return false;
-
-  // std::string varType(typeIdentifier->getName());
-  // auto iter = OpenCL::CL_TYPES.find(varType);
-  // if (iter != OpenCL::CL_TYPES.end()) {
-  //   // Remove statement containing redundant opencl types
-  //   // TODO: This is obviously an awful way of doing this, maybe do some
-  //   // analysis???
-  //   llvm::errs() << sOpenHipify << "Removing...";
-  //   PrettyError(varDecl->getSourceRange(), raw_ostream::YELLOW);
-  //   RemoveDeclFromSource(varDecl);
-  //   return true;
-  // }
-  // return false;
-  const VarDecl *varDecl = res.Nodes.getNodeAs<VarDecl>(B_VAR_DECL_CULL);
-  if (!varDecl)
-    return false;
-  // look for uses in matcher maybe?
-  return true;
 }
 
 bool OpenHipifyHostFA::DeclarationStmt(
@@ -491,9 +467,9 @@ bool OpenHipifyHostFA::ErrorComparison(
     return false;
   }
 
+  // err == CL_SUCCESS -> err = hipSuccess
   const Expr *rhs = binOp->getRHS();
   Expr::EvalResult rhsEval;
-
   if (rhs->EvaluateAsInt(rhsEval, *AST)) {
     APSInt errCase = rhsEval.Val.getInt();
     if (errCase == OpenCL::CL_SUCCESS_VAL) {
@@ -534,6 +510,10 @@ bool OpenHipifyHostFA::HandleMemoryFunctionCall(const CallExpr *callExpr,
 }
 
 bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
+  // clCreateBuffer(..., ..., ..., ..., &ret);
+  //                                    ^^^^
+  // If the return value is passed in, we need to generate a HIP equivalent
+
   const Expr *errExpr = callExpr->getArg(4);
   const Expr *errNullTest =
       errExpr->IgnoreCasts()->IgnoreParens()->IgnoreCasts();
@@ -541,27 +521,33 @@ bool OpenHipifyHostFA::ReplaceCreateBuffer(const CallExpr *callExpr) {
   std::string errStr;
   std::string strippedErr;
   if (dyn_cast<IntegerLiteral>(errNullTest)) {
+    // Error argument is NULL
     errTest = false;
   } else {
+    // Test if the error is in the form &err, or err (pointer type)
     if (StripAddressOfVar(errExpr, strippedErr)) {
+      // Form &err, strip address-of operator
       errStr = strippedErr;
     } else {
+      // Form err, add dereference operator
       errStr = "*(" + ExprToStr(errExpr) + ")";
     }
   }
 
   const auto callExprParIter = AST->getParents(*callExpr).begin();
-  // Grab parent of callExpr
-  // TODO: Support other cases than just vardecl, e.g. binary expression
   const BinaryOperator *binOp;
   binOp = callExprParIter->get<BinaryOperator>();
-  if (binOp)
+  if (binOp) {
+    // Form: mem = clCreateBuffer(...)
     return ReplaceCreateBufferBinOp(callExpr, binOp, errTest, errStr);
+  }
 
   const VarDecl *varDecl;
   varDecl = callExprParIter->get<VarDecl>();
-  if (varDecl)
+  if (varDecl) {
+    // Form: cl_mem mem = clCreateBuffer(...)
     return ReplaceCreateBufferVarDecl(callExpr, varDecl, errTest, errStr);
+  }
 
   return false;
 }
@@ -583,7 +569,6 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
   // void* mem;
   // hipMalloc((void**) &mem, ...);
   //
-  // TODO: come up with a better way to do this
 
   // Finding SourceLocation for: cl_mem mem = clCreateBuffer(...);
   //                                        ^
@@ -596,8 +581,8 @@ bool OpenHipifyHostFA::ReplaceCreateBufferVarDecl(
     splitExprStr << errVarStr << "=";
   }
 
-  // cl_mem mem = clCreateBuffer(...);
-  // cl_mem mem ; clCreateBuffer(...);
+  // void* mem = clCreateBuffer(...);
+  // void* mem ; {OPTIONAL: err =} clCreateBuffer(...);
   ct::Replacement binaryExprRepl(*SM, equalLoc, 1, splitExprStr.str());
   llvm::consumeError(m_replacements.add(binaryExprRepl));
   ReplaceCreateBufferArguments(cBufExpr, varDecl->getNameAsString());
@@ -619,6 +604,15 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!varDecl)
     return false;
 
+  /*
+  Appending * to initial var declaration
+
+  cl_mem a, b, target, c;
+  ^^^^^^^^^^^^^^^^^^^^^^ <- declStr
+  Need to find varName inside this string to prepend:
+  void a, b, *target, c;
+  */
+
   std::string varName = varRef->getNameInfo().getName().getAsString();
   std::string declStr = DeclToStr(varDecl);
   const char *searchStr = strstr(declStr.c_str(), varName.c_str());
@@ -635,6 +629,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (!searchStr) {
     return false;
   }
+
   unsigned offset = searchStr - declStr.c_str();
 
   // prefixing with pointer type
@@ -647,6 +642,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
   if (clmemidx == std::string::npos)
     return false;
 
+  // cl_mem ... -> void ...
   SourceLocation beginDeclLoc =
       varDecl->getBeginLoc().getLocWithOffset(clmemidx);
   auto varTypeIt = m_varTypeRenameLocs.find(beginDeclLoc.getHashValue());
@@ -657,7 +653,7 @@ bool OpenHipifyHostFA::ReplaceCreateBufferBinOp(
     llvm::consumeError(m_replacements.add(typeRepl));
   }
 
-  // Replace LHS of binop
+  // Replace LHS of binop in case error return is needed
   SourceLocation binOpBeginLoc = binOp->getLHS()->getExprLoc();
   SourceLocation binOpEndLoc = binOp->getRHS()->getExprLoc();
   CharSourceRange binOpRng =
@@ -683,7 +679,6 @@ void OpenHipifyHostFA::ReplaceCreateBufferArguments(
   // Whole argument replacement
   SourceLocation argStart = callExpr->getExprLoc();
   SourceLocation argEnd = callExpr->getEndLoc();
-  // Can be shortened
   CharSourceRange argRng = CharSourceRange::getCharRange(argStart, argEnd);
 
   std::string newArgs;
@@ -699,6 +694,9 @@ void OpenHipifyHostFA::ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
                                              std::string hostBuf,
                                              std::string bytes) {
   // Test if writebuffer is piggybacked onto the call
+  // clCreateBuffer(..., ..., ..., BUFFER_PTR,...)
+  // Buffer is written to, instead of a separate clWriteBuffer call.
+  // We must generate a separate hipMemcpy call
   const Expr *bufExpr = callExpr->getArg(3)->IgnoreParens()->IgnoreCasts();
   auto *bufRef = dyn_cast<DeclRefExpr>(bufExpr);
   if (!bufRef) {
@@ -718,7 +716,6 @@ void OpenHipifyHostFA::ReplaceCBuffPiggyBack(const clang::CallExpr *callExpr,
   llvm::consumeError(m_replacements.add(pRepl));
 }
 
-// TODO: Handle error return for clCreateWriteBuffer
 bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
                                           bool isRead) {
   // Replace function name with memcpy
@@ -779,8 +776,6 @@ bool OpenHipifyHostFA::ReplaceEnqueBuffer(const CallExpr *callExpr,
   ct::Replacement argsRepl(*SM, argRng, hipMemcpyArgsStr.str());
   llvm::consumeError(m_replacements.add(argsRepl));
 
-  // test if error is checked
-
   EnsureBinExprIsAssign(callExpr);
   return true;
 }
@@ -828,8 +823,6 @@ bool OpenHipifyHostFA::HandleGenericFunctionCall(
 
 bool OpenHipifyHostFA::HandleRedundantFunctionCall(
     const clang::CallExpr *callExpr) {
-  // Need to test if it has return value
-
   auto callExprParIter = AST->getParents(*callExpr).begin();
   // Grab kernel declaration
   const VarDecl *varDecl = callExprParIter->get<VarDecl>();
@@ -1050,8 +1043,7 @@ bool OpenHipifyHostFA::ReplaceGetKWGGeneric(const clang::CallExpr &callExpr) {
   if (!paramExpr->EvaluateAsInt(paramEval, *AST))
     return false;
 
-  // generate initialisation of HIP props (could use scope stuff)
-
+  // generate initialisation of HIP props
   std::string HIPPropRepl;
   llvm::raw_string_ostream replStr(HIPPropRepl);
 
