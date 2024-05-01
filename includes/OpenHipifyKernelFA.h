@@ -1,8 +1,8 @@
 #pragma once
-
 #include "HIPDefs.h"
 #include "KernelTracking.h"
 #include "OpenClDefs.h"
+#include "OpenHipifyFA.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Core/Replacement.h"
@@ -11,16 +11,13 @@ using namespace llvm;
 namespace ct = clang::tooling;
 namespace ASTMatch = clang::ast_matchers;
 
-class OpenHipifyKernelFA : public clang::ASTFrontendAction,
-                           public ASTMatch::MatchFinder::MatchCallback {
-  using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
+class OpenHipifyKernelFA : public OpenHipifyFA {
 
 public:
   explicit OpenHipifyKernelFA(
       ct::Replacements &replacements,
       std::map<std::string, const KernelDefinition> &kFuncMap)
-      : clang::ASTFrontendAction(), m_kernelFuncMap(kFuncMap),
-        m_replacements(replacements) {}
+      : OpenHipifyFA(replacements, kFuncMap) {}
 
 private:
   void run(const ASTMatch::MatchFinder::MatchResult &res) override;
@@ -49,14 +46,5 @@ private:
   bool ReplaceBARRIER(const clang::CallExpr &callExpr,
                       const ASTMatch::MatchFinder::MatchResult &res);
 
-  void PrettyError(clang::SourceRange loc,
-                   llvm::raw_ostream::Colors underlineCol,
-                   std::string extraInfo = "");
-
   std::set<HIP::AUX_FUNC_ID> m_auxFunctions;
-  std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
-
-  const clang::SourceManager *SM;
-  MatchFinderPtr m_finder;
-  ct::Replacements &m_replacements;
 };

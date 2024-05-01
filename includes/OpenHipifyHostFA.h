@@ -2,6 +2,7 @@
 
 #include "KernelTracking.h"
 #include "OpenClDefs.h"
+#include "OpenHipifyFA.h"
 #include "OpenHipifyKernelFA.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -12,10 +13,7 @@ using namespace llvm;
 namespace ct = clang::tooling;
 namespace ASTMatch = clang::ast_matchers;
 
-class OpenHipifyHostFA : public clang::ASTFrontendAction,
-                         public ASTMatch::MatchFinder::MatchCallback {
-  using MatchFinderPtr = std::unique_ptr<ASTMatch::MatchFinder>;
-
+class OpenHipifyHostFA : public OpenHipifyFA {
 public:
   // file name -> (kernel name -> kernel definition)
   using KernelIncludeTracker =
@@ -26,8 +24,7 @@ public:
       ct::Replacements &replacements,
       std::map<std::string, const KernelDefinition> &kFuncMap,
       KernelIncludeTracker &kernelIncludeTracker)
-      : clang::ASTFrontendAction(), m_kernelFuncMap(kFuncMap),
-        m_replacements(replacements),
+      : OpenHipifyFA(replacements, kFuncMap),
         m_kernelIncludeTracker(kernelIncludeTracker) {}
 
 private:
@@ -128,20 +125,11 @@ private:
   clang::SourceLocation LexForTokenLocation(clang::SourceLocation beginLoc,
                                             clang::tok::TokenKind tokType);
 
-  void PrettyError(clang::SourceRange loc,
-                   llvm::raw_ostream::Colors underlineCol,
-                   std::string extraInfo = "");
-
-  // kernel name -> kernel def
-  std::map<std::string, const KernelDefinition> &m_kernelFuncMap;
   std::vector<const clang::Stmt *> m_dPropScopes;
   std::set<clang::SourceLocation> m_clIntRenames;
 
   std::set<unsigned> m_varTypeRenameLocs;
-  ct::Replacements &m_replacements;
-  const clang::SourceManager *SM;
   clang::ASTContext *AST;
-  MatchFinderPtr m_finder;
   KernelLaunchTracker m_kernelTracker;
   KernelIncludeTracker &m_kernelIncludeTracker;
 };
